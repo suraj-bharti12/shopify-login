@@ -34,7 +34,7 @@ export async function issueOtp({ flowId, purpose, channel, target, userId, store
     if (channel === 'email') await sendEmail(target, code, purpose, store?.brand?.name);
     else await sendSms(target, code, store?.smsTemplate);
   } catch (err) {
-    console.error(`[otp] could not send ${channel} to ${maskTarget(target)}:`, err.message);
+    console.error(`[otp] could not send ${channel} to ${maskTarget(target)}:`, channel === 'email' ? explainMailError(err) : err.message);
     await Otp.deleteOne({ _id: otp._id });
     throw new OtpError(channel === 'sms'
       ? 'We couldn’t send the SMS right now. Please try again in a moment.'
@@ -71,20 +71,36 @@ export function resetMailer() { transporter = undefined; }
 function mailer() {
   if (!transporter) {
     transporter = config.mail.transport === 'smtp'
-      ? nodemailer.createTransport(config.mail.smtp)
+      // Short timeouts: a blocked port fails in seconds instead of hanging for minutes.
+      ? nodemailer.createTransport({ ...config.mail.smtp, connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000 })
       : { sendMail: async (m) => console.log(`\n[mail:console] To: ${m.to}\nSubject: ${m.subject}\n${m.text}\n`) };
   }
   return transporter;
 }
 
+/** Turns SMTP errors into something the admin can act on. */
+export function explainMailError(e) {
+  const where = `${config.mail.smtp.host}:${config.mail.smtp.port}`;
+  if (['ETIMEDOUT', 'ECONNECTION', 'ESOCKET', 'ECONNREFUSED'].includes(e.code) || /timeout/i.test(e.message)) {
+    return `Could not reach ${where}. On Render's free plan ports 25, 465 and 587 are blocked: use port 2525 (Brevo) with SSL off.`;
+  }
+  if (e.code === 'EAUTH') return `${where} refused the SMTP user or password. Check the SMTP user and key.`;
+  if (/sender|not verified|not allowed/i.test(e.message)) return `The From address is not allowed: verify it with your email provider. (${e.message})`;
+  return e.message;
+}
+
 /** Admin panel "Send test email". */
 export async function sendTestEmail(to) {
-  await mailer().sendMail({
-    from: config.mail.from,
-    to,
-    subject: 'Test email from your login server',
-    text: 'It works! Customers will receive their login codes from this address.',
-  });
+  try {
+    await mailer().sendMail({
+      from: config.mail.from,
+      to,
+      subject: 'Test email from your login server',
+      text: 'It works! Customers will receive their login codes from this address.',
+    });
+  } catch (e) {
+    throw new Error(explainMailError(e));
+  }
 }
 
 async function sendEmail(to, code, purpose, brand = 'our store') {
