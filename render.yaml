@@ -6,7 +6,7 @@ services:
     name: shopify-login
     runtime: node
     region: singapore          # closest to India; can't be changed later
-    # plan: free               # free sleeps after 15 min idle -> testing only
+     plan: free               # free sleeps after 15 min idle -> testing only
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /healthz
