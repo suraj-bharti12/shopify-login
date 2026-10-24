@@ -1,0 +1,20 @@
+{
+  "id": "my-new-store",
+  "name": "My New Store",
+  "shopDomain": "my-new-store.myshopify.com",
+  "shopId": "12345678901",
+  "domains": ["www.mynewstore.com"],
+  "accountDomain": "",
+  "extraRedirectUris": [],
+  "extraLogoutUris": [],
+  "afterLogin": "current",
+  "brand": {
+    "welcome": "Welcome to",
+    "name": "My New Store",
+    "logoUrl": "https://cdn.shopify.com/s/files/.../logo.png",
+    "tagline": "Short line shown under the logo.",
+    "color": "#111111",
+    "supportEmail": "help@mynewstore.com"
+  },
+  "smsTemplate": "Dear Customer, Your OTP is {otp}. <exact DLT-approved text for this brand>"
+}

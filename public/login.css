@@ -1,0 +1,87 @@
+/* Login widget: store drawer (.idp--drawer) and hosted page card (.idp--page). */
+.idp,.idp *{box-sizing:border-box}
+.idp{--idp-brand:#8b1d24;--idp-ink:#1a1a1a;--idp-muted:#6b6b6b;--idp-line:#d9d9d9;--idp-serif:"Cormorant Garamond",Georgia,"Times New Roman",serif;
+  font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:15px;line-height:1.5;color:var(--idp-ink);text-align:left}
+.idp [hidden],.idp[hidden]{display:none!important}
+/* keep the theme's global styles out (low priority, so the rules below win) */
+.idp :where(div,p,form,label,span,h2,hr,img,a){float:none;text-transform:none;letter-spacing:normal}
+.idp :where(p,h2,form){margin:0;padding:0}
+.idp a{color:#111}
+
+/* ---------- drawer on the store ---------- */
+.idp--drawer{position:fixed;inset:0;z-index:2147483000}
+.idp-overlay{position:absolute;inset:0;background:rgba(0,0,0,.55);opacity:0;transition:opacity .25s}
+.idp--drawer .idp-panel{position:absolute;top:0;right:0;bottom:0;width:min(570px,100%);background:#fff;overflow-y:auto;outline:none;
+  transform:translateX(100%);transition:transform .3s ease;box-shadow:-12px 0 40px rgba(0,0,0,.2)}
+.idp--drawer.is-open .idp-overlay{opacity:1}
+.idp--drawer.is-open .idp-panel{transform:none}
+html.idp-lock,html.idp-lock body{overflow:hidden}
+.idp-x{position:absolute;top:18px;right:20px;width:36px;height:36px;padding:0;border:0;background:none;color:#222;cursor:pointer;display:grid;place-items:center;border-radius:50%}
+.idp-x:hover{background:#f2f2f2}
+.idp-x svg{width:22px;height:22px}
+.idp-inner{max-width:370px;margin:0 auto;padding:56px 0 48px}
+
+/* ---------- hosted login page (checkout "Sign in") ---------- */
+body.idp-page{margin:0;min-height:100vh;background:#f6f6f4}
+.idp--page .idp-panel{max-width:460px;margin:56px auto;background:#fff;border:1px solid #e6e6e6;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.idp--page .idp-inner{max-width:none;padding:44px 44px 40px}
+
+/* ---------- content ---------- */
+.idp-welcome{font:400 30px/1.15 var(--idp-serif);margin:0 0 10px;color:#222}
+.idp-logo{display:block;max-height:52px;max-width:220px}
+.idp-wordmark{font:600 34px/1.1 var(--idp-serif);color:var(--idp-brand)}
+.idp-tagline{color:var(--idp-muted);font-size:13.5px;line-height:1.55;margin:14px 0 0}
+.idp-rule{border:0;border-top:1px solid #e3e3e3;margin:24px 0 28px;height:0}
+.idp-h{font:400 27px/1.2 var(--idp-serif);margin:0 0 18px;color:#222}
+.idp-sub{color:var(--idp-muted);font-size:14px;margin:-8px 0 16px}
+.idp-error{background:#fef3f2;color:#b42318;border-left:3px solid #b42318;padding:10px 12px;margin:0 0 14px;font-size:13.5px}
+.idp-view{display:flex;flex-direction:column;gap:12px}
+.idp-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.idp input{width:100%;height:42px;margin:0;padding:0 14px;font:inherit;font-size:14px;color:var(--idp-ink);background:#fff;
+  border:1px solid var(--idp-line);border-radius:0;outline:none;box-shadow:none;-webkit-appearance:none;appearance:none}
+.idp input::placeholder{color:#9a9a9a}
+.idp input:focus{border-color:#1a1a1a}
+.idp-phone{display:flex;align-items:center;height:42px;margin:0;border:1px solid #1a1a1a}
+.idp-cc{padding:0 4px 0 14px;font-size:14px;color:#333}
+.idp-phone input{border:0;height:40px;padding-left:8px}
+.idp-pw{position:relative}
+.idp-pw input{padding-right:44px}
+.idp-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:34px;height:34px;padding:0;border:0;background:none;color:#666;cursor:pointer;display:grid;place-items:center}
+.idp-eye.on{color:#111}
+.idp-eye svg{width:20px;height:20px}
+.idp .idp-code{font-size:20px;letter-spacing:8px;text-align:center}
+.idp .idp-code::placeholder{font-size:14px;letter-spacing:normal}
+.idp .idp-btn{display:flex;align-items:center;justify-content:center;width:100%;height:42px;margin-top:4px;padding:0 16px;
+  font-family:inherit;font-size:13px;font-weight:500;line-height:1;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;
+  color:#111;background:#fff;border:1px solid #111;border-radius:0;cursor:pointer;transition:background .15s,color .15s}
+.idp .idp-btn:hover{background:#111;color:#fff}
+.idp-btn[disabled]{opacity:.6;cursor:progress}
+.idp-right{text-align:right;margin:-2px 0 4px;font-size:13.5px}
+.idp-link{margin:10px 0 0;font-size:14px}
+.idp-link a{text-decoration:underline;text-underline-offset:3px}
+.idp-back{margin:6px 0 0;font-size:13.5px}
+.idp-back a{text-decoration:none}
+.idp-muted{margin:4px 0 0;font-size:13.5px;color:var(--idp-muted)}
+.idp-textbtn{padding:0;border:0;background:none;font:inherit;color:#111;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.idp-textbtn[disabled]{color:#9a9a9a;cursor:default;text-decoration:none}
+.idp-divider{display:flex;align-items:center;gap:14px;color:#555;font-size:14px;margin:12px 0 6px}
+.idp-divider::before,.idp-divider::after{content:"";flex:1;height:1px;background:#e3e3e3}
+.idp-tiles{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:10px}
+.idp-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:70px;border:1px solid var(--idp-line);
+  text-decoration:none!important;color:#222!important;font-size:13.5px}
+.idp-tile:hover{border-color:#111}
+.idp-tile svg{width:22px;height:22px}
+.idp-loading{align-items:center;padding:30px 0;color:#555}
+.idp-spinner{width:28px;height:28px;border:2px solid #ddd;border-top-color:#111;border-radius:50%;animation:idpspin .8s linear infinite}
+@keyframes idpspin{to{transform:rotate(360deg)}}
+
+@media (max-width:600px){
+  .idp-inner{padding:52px 20px 36px}
+  .idp-welcome{font-size:26px}
+  .idp-h{font-size:24px}
+  .idp-row{grid-template-columns:1fr}
+  body.idp-page{background:#fff}
+  .idp--page .idp-panel{margin:0;border:0;box-shadow:none;min-height:100vh}
+  .idp--page .idp-inner{padding:40px 20px 32px}
+}
+@media (prefers-reduced-motion:reduce){.idp-overlay,.idp--drawer .idp-panel{transition:none}}

@@ -1,0 +1,17 @@
+{
+  "id": "berrylush06",
+  "name": "Berrylush Test",
+  "shopDomain": "berrylush06.myshopify.com",
+  "shopId": "65634402484",
+  "domains": [],
+  "afterLogin": "current",
+  "brand": {
+    "welcome": "Welcome to",
+    "name": "Berrylush",
+    "logoUrl": "",
+    "tagline": "Join the Berrylush community to enjoy curated offers, personalised recommendations, and special member-only perks.",
+    "color": "#8b1d24",
+    "supportEmail": ""
+  },
+  "smsTemplate": "Dear Customer, Your OTP is {otp}. Please use this for any of your interactions on Fabindia website. OTP is valid for 30 secs"
+}

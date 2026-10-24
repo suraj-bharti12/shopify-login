@@ -1,0 +1,33 @@
+{
+  "name": "shopify-idp",
+  "version": "3.1.0",
+  "private": true,
+  "description": "Own customer login (mobile OTP, email OTP, password, Google, Facebook, Apple) for Shopify stores, via OpenID Connect",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch-path=src --watch-path=public src/server.js",
+    "admin:reset": "node scripts/admin-reset.js",
+    "sms:test": "node scripts/sms-test.js",
+    "user:check": "node scripts/check-user.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jose": "^6.2.13",
+    "mongoose": "^9.11.3",
+    "nodemailer": "^10.2.0",
+    "oidc-provider": "^9.12.2",
+    "openid-client": "^6.8.8"
+  }
+}
