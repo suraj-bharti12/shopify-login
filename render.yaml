@@ -1,12 +1,10 @@
-# Render Blueprint: Render -> New -> Blueprint -> pick this repo.
-# It asks for MONGODB_URI and OTP_SECRET. Everything else (SMS, email, Google,
-# stores) comes from the database / Admin Panel.
+# Render Blueprint. Render asks for MONGODB_URI and OTP_SECRET.
 services:
   - type: web
     name: shopify-login
     runtime: node
-    region: singapore          # closest to India; can't be changed later
-     plan: free               # free sleeps after 15 min idle -> testing only
+    region: singapore
+    plan: free
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /healthz
@@ -16,10 +14,8 @@ services:
       - key: DEV_TEST_CLIENT
         value: "false"
       - key: MONGODB_URI
-        sync: false            # same Atlas link as your .env
+        sync: false
       - key: OTP_SECRET
-        sync: false            # copy EXACTLY from your .env (it unlocks saved passwords)
+        sync: false
       - key: COOKIE_KEYS
         generateValue: true
-      # ISSUER: leave unset to use https://<name>.onrender.com.
-      # Set it to https://auth.yourbrand.com after adding your own domain.
