@@ -3,7 +3,7 @@
 import { config } from './config.js';
 import { stores, publicConfig } from './stores.js';
 
-export const ASSET_VERSION = '12';
+export const ASSET_VERSION = '13';
 const FONTS = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({

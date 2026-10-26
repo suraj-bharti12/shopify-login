@@ -911,3 +911,24 @@ test('admin: setup guide is in the panel', async () => {
   assert.match(g.text, /data-copy-textarea/);
   assert.match((await b.req('/admin')).text, /href="\/admin\/guide"/);
 });
+
+test('forgot password: the new password must differ from the old one', async () => {
+  const resetTo = async (password) => {
+    const f1 = await api('/api/login/forgot', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email: 'asha@example.com' });
+    const f2 = await api('/api/login/otp/verify', { flowId: f1.json.flowId, code: lastCode('asha@example.com') });
+    assert.equal(f2.json.step, 'reset');
+    return { flowId: f1.json.flowId, res: await api('/api/login/reset', { flowId: f1.json.flowId, password }) };
+  };
+  const same = await resetTo('newpass123'); // current password
+  assert.equal(same.res.status, 400);
+  assert.match(same.res.json.error, /must be different from your old password/);
+  // new password and confirmation must match
+  const mismatch = await api('/api/login/reset', { flowId: same.flowId, password: 'other12345', confirmPassword: 'other12346' });
+  assert.equal(mismatch.status, 400);
+  assert.match(mismatch.json.error, /passwords don.t match/);
+  // the customer can pick another one in the same step
+  const other = await api('/api/login/reset', { flowId: same.flowId, password: 'other12345', confirmPassword: 'other12345' });
+  assert.equal(other.json.step, 'done');
+  // and later go back to the earlier one (it is no longer the current password)
+  assert.equal((await resetTo('newpass123')).res.json.step, 'done');
+});

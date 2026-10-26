@@ -249,8 +249,14 @@ export function loginRouter() {
     if (!flow.resetUserId) throw new LoginError('Please verify the code first.');
     const problem = passwordProblem(req.body.password);
     if (problem) throw new LoginError(problem);
-    const user = await User.findById(flow.resetUserId);
+    if (req.body.confirmPassword !== undefined && req.body.confirmPassword !== req.body.password) {
+      throw new LoginError('The passwords don’t match. Please enter the same password twice.');
+    }
+    const user = await User.findById(flow.resetUserId).select('+passwordHash');
     if (!user) throw new LoginError('Account not found.', 404);
+    if (user.passwordHash && await user.checkPassword(String(req.body.password))) {
+      throw new LoginError('Your new password must be different from your old password.');
+    }
     await user.setPassword(req.body.password);
     user.emailVerified = true; // they just proved access to the inbox
     await user.save();

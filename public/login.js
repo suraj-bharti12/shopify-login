@@ -93,6 +93,7 @@
 
     '<form class="idp-view" data-view="reset" hidden novalidate>',
     pw('password', 'new-password', 'New password (min 8, letters + numbers)'),
+    pw('confirmPassword', 'new-password', 'Confirm new password'),
     '<button class="idp-btn" type="submit">Save and login</button>',
     '</form>',
 
@@ -260,7 +261,9 @@
     return api('/api/login/forgot', base({ email: f.email.value }));
   });
   onSubmit('reset', function (f) {
-    return api('/api/login/reset', { flowId: state.flowId, password: f.password.value });
+    if (!f.password.value) throw new Error('Please enter a new password.');
+    if (f.password.value !== f.confirmPassword.value) throw new Error('The passwords don’t match. Please enter the same password twice.');
+    return api('/api/login/reset', { flowId: state.flowId, password: f.password.value, confirmPassword: f.confirmPassword.value });
   });
 
   q('[data-resend]').addEventListener('click', function () {
