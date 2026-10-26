@@ -128,13 +128,17 @@ after(async () => {
 
 // ---------- helpers ----------
 
-// Minimal browser: cookie jar + manual redirects
+// Minimal browser: cookie jar per address + manual redirects
+const LOGIN2 = `http://127.0.0.1:${PORT}`; // a store's own login domain in the tests
+const SERVER_ORIGINS = new Set([ISSUER, LOGIN2]);
 function browser() {
-  const jar = new Map();
+  const jars = new Map();
+  const jarFor = (origin) => { if (!jars.has(origin)) jars.set(origin, new Map()); return jars.get(origin); };
   async function req(url, { method = 'GET', form } = {}) {
     const u = new URL(url, ISSUER);
+    const jar = jarFor(u.origin);
     const headers = {};
-    if (jar.size && u.origin === ISSUER) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
+    if (jar.size && SERVER_ORIGINS.has(u.origin)) headers.cookie = [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
     let body;
     if (form) { body = new URLSearchParams(form).toString(); headers['content-type'] = 'application/x-www-form-urlencoded'; }
     const res = await fetch(u, { method, headers, body, redirect: 'manual' });
@@ -151,12 +155,12 @@ function browser() {
     let r = await req(url, opts);
     for (let i = 0; i < 15 && r.location; i += 1) {
       const nextUrl = new URL(r.location, r.url);
-      if (nextUrl.origin !== ISSUER) return { ...r, final: nextUrl };
+      if (!SERVER_ORIGINS.has(nextUrl.origin)) return { ...r, final: nextUrl };
       r = await req(nextUrl.toString());
     }
     return r;
   }
-  return { req, go, jar };
+  return { req, go, jar: jarFor(ISSUER) };
 }
 
 // The login widget's API calls
@@ -705,4 +709,205 @@ test('upgrade: customers saved before customer lists existed join the shared lis
   const r = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, identifier: 'old@example.com' });
   const v = await api('/api/login/otp/verify', { flowId: r.json.flowId, code: lastCode('old@example.com') });
   assert.equal(v.json.step, 'done', JSON.stringify(v.json));
+});
+
+// ---------- a store's own SMS / email / social keys ----------
+
+async function saveTestStore(b, extra) {
+  const page = await b.req('/admin/stores/test-store');
+  return b.req('/admin/stores/test-store', {
+    method: 'POST',
+    form: {
+      _csrf: csrfOf(page.text), name: 'Test Store', shopDomain: 'test-store.myshopify.com', shopId: '111',
+      domains: 'store.example', brandName: 'Test Brand', tagline: 'Hello', color: '#123456', smsTemplate: 'TEST {otp} CODE', ...extra,
+    },
+  });
+}
+
+test('own keys: a store can use its own email account, secrets encrypted, others keep the default', async () => {
+  const b = await adminBrowser();
+  const page = await b.req('/admin/stores/test-store');
+  assert.match(page.text, /SMS, email &amp; social login/);
+  assert.match(page.text, /Use default from Settings/);
+  // own email pointing at a closed port -> email OTP for this store fails fast with a clear reason
+  const saved = await saveTestStore(b, {
+    own_mail: '1', 'cred:mail.transport': 'smtp', 'cred:mail.from': 'Test <shop@example.com>',
+    'cred:mail.smtp.host': '127.0.0.1', 'cred:mail.smtp.port': '1', 'cred:mail.smtp.secure__present': '1',
+    'cred:mail.smtp.auth.user': 'shopuser', 'cred:mail.smtp.auth.pass': 'shop-secret-999',
+  });
+  assert.equal(saved.status, 303, saved.text.slice(0, 300));
+  assert.equal(stores.get('test-store').own.mail, true);
+  const doc = await mongoose.connection.db.collection('stores').findOne({ _id: 'test-store' });
+  assert.match(doc.creds['mail:smtp:auth:pass'], /^enc:v1:/);
+  assert.doesNotMatch(JSON.stringify(doc), /shop-secret-999/);
+
+  const s = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, identifier: 'own.mail@example.com' });
+  assert.match(s.json.error || '', /couldn.t send the email/, JSON.stringify(s.json));
+  assert.equal(lastCode('own.mail@example.com'), undefined); // nothing went to the default (console) sender
+  // the other store still uses the default email
+  const o = await api('/api/login/otp/send', { store: 'other-store', returnTo: 'https://other.example/customer_authentication/login', identifier: 'other.mail@example.com' }, OTHER_ORIGIN);
+  assert.equal(o.json.step, 'otp');
+  assert.ok(lastCode('other.mail@example.com'));
+
+  // the store's test button reports the store's own server
+  const t = await b.req('/admin/stores/test-store/test-email', { method: 'POST', form: { _csrf: csrfOf(page.text), email: 'x@example.com' } });
+  assert.equal(t.status, 303);
+  const after = await b.req('/admin/stores/test-store');
+  assert.match(after.text, /Could not reach 127\.0\.0\.1:1/);
+
+  // empty secret keeps the saved one; switching back to default works straight away
+  await saveTestStore(b, { own_mail: '0', 'cred:mail.smtp.auth.pass': '' });
+  const doc2 = await mongoose.connection.db.collection('stores').findOne({ _id: 'test-store' });
+  assert.equal(doc2.creds['mail:smtp:auth:pass'], doc.creds['mail:smtp:auth:pass']);
+  assert.equal(stores.get('test-store').own.mail, false);
+  const ok = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, identifier: 'own.mail2@example.com' });
+  assert.equal(ok.json.step, 'otp');
+});
+
+test('own keys: a store can use its own Google account or turn social logins off', async () => {
+  const b = await adminBrowser();
+  // own social with no keys -> no social buttons for this store, others unchanged
+  await saveTestStore(b, { own_social: '1' });
+  const cfg = await (await fetch(`${ISSUER}/api/login/config?store=test-store`, { headers: { origin: STORE_ORIGIN } })).json();
+  assert.equal(cfg.social.google, false);
+  const other = await (await fetch(`${ISSUER}/api/login/config?store=other-store`, { headers: { origin: OTHER_ORIGIN } })).json();
+  assert.equal(other.social.google, true);
+  const blocked = await browser().req(`/login/social/google?store=test-store&returnTo=${encodeURIComponent(SHOPIFY_LOGIN)}`);
+  assert.equal(blocked.status, 400);
+
+  // own Google client -> Google is asked with that client ID
+  await saveTestStore(b, { own_social: '1', 'cred:google.clientId': 'store-google-id', 'cred:google.clientSecret': 'store-google-secret' });
+  const cfg2 = await (await fetch(`${ISSUER}/api/login/config?store=test-store`, { headers: { origin: STORE_ORIGIN } })).json();
+  assert.equal(cfg2.social.google, true);
+  const start = await browser().req(`/login/social/google?store=test-store&returnTo=${encodeURIComponent(SHOPIFY_LOGIN)}`);
+  assert.equal(start.status, 303);
+  assert.equal(new URL(start.location).searchParams.get('client_id'), 'store-google-id');
+  const otherStart = await browser().req(`/login/social/google?store=other-store&returnTo=${encodeURIComponent('https://other.example/customer_authentication/login')}`);
+  assert.equal(new URL(otherStart.location).searchParams.get('client_id'), 'g-client');
+
+  await saveTestStore(b, { own_social: '0' });
+  const cfg3 = await (await fetch(`${ISSUER}/api/login/config?store=test-store`, { headers: { origin: STORE_ORIGIN } })).json();
+  assert.equal(cfg3.social.google, true);
+});
+
+test('own keys: a store can use its own SMS account', async () => {
+  const b = await adminBrowser();
+  await saveTestStore(b, { own_sms: '1', 'cred:sms.provider': 'gupshup', 'cred:sms.gupshup.userId': '' });
+  const s = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, mobile: '9000000071' });
+  assert.match(s.json.error || '', /couldn.t send the SMS/); // its own Gupshup has no password -> not sent by the default console sender
+  assert.equal(lastCode('+919000000071'), undefined);
+  const page = await b.req('/admin/stores/test-store');
+  await b.req('/admin/stores/test-store/test-sms', { method: 'POST', form: { _csrf: csrfOf(page.text), phone: '9000000072' } });
+  assert.match((await b.req('/admin/stores/test-store')).text, /Gupshup user ID \/ password are not set/);
+  await saveTestStore(b, { own_sms: '0' });
+  const ok = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, mobile: '9000000073' });
+  assert.equal(ok.json.step, 'otp');
+  assert.match(lastSent('+919000000073').text, /TEST \d{6} CODE/);
+});
+
+// ---------- a store's own login domain ----------
+
+const DOM_ORIGIN = 'https://dom.example';
+const DOM_LOGIN = `${DOM_ORIGIN}/customer_authentication/login?return_to=%2F`;
+const DOM_CALLBACK = 'https://shopify.com/authentication/555/login/external/callback';
+const domAuthorize = (base = LOGIN2) => `${base}/authorize?${new URLSearchParams({
+  client_id: 'shop_dom-store', redirect_uri: DOM_CALLBACK, response_type: 'code', scope: 'openid email profile phone', state: 'sd', nonce: 'nd',
+})}`;
+
+test('login domain: a store can have its own login address with its own discovery document', async () => {
+  const b = await adminBrowser();
+  const form = await b.req('/admin/stores/new');
+  assert.match(form.text, /Login domain/);
+  const base = { _csrf: csrfOf(form.text), id: 'dom-store', name: 'Dom Store', shopDomain: 'dom-store.myshopify.com', shopId: '555', domains: 'dom.example' };
+  const bad = await b.req('/admin/stores/new', { method: 'POST', form: { ...base, loginDomain: 'dom-store.myshopify.com' } });
+  assert.equal(bad.status, 400);
+  assert.match(bad.text, /not myshopify\.com/);
+  const site = await b.req('/admin/stores/new', { method: 'POST', form: { ...base, loginDomain: 'dom.example' } });
+  assert.match(site.text, /must be its own subdomain/);
+  const made = await b.req('/admin/stores/new', { method: 'POST', form: { ...base, loginDomain: `127.0.0.1:${PORT}` } });
+  assert.equal(made.status, 303, made.text.slice(0, 300));
+  await mongoose.connection.db.collection('oidc_client').updateOne({ _id: 'shop_dom-store' }, { $set: { 'payload.client_secret': SECRET } });
+
+  const page = await b.req('/admin/stores/dom-store');
+  assert.match(page.text, /CNAME/);
+  assert.ok(page.text.includes(`${LOGIN2}/.well-known/openid-configuration`));
+  assert.match(page.text, /data-idp=(&quot;|")http:\/\/127\.0\.0\.1:3999/);
+  const settings = await b.req('/admin/settings');
+  assert.ok(settings.text.includes(`${LOGIN2}/social/google/callback`));
+
+  const d2 = await (await fetch(`${LOGIN2}/.well-known/openid-configuration`)).json();
+  assert.equal(d2.issuer, LOGIN2);
+  assert.ok(d2.authorization_endpoint.startsWith(LOGIN2));
+  const d1 = await (await fetch(`${ISSUER}/.well-known/openid-configuration`)).json();
+  assert.equal(d1.issuer, ISSUER);
+
+  await b.req('/admin/stores/dom-store/check-domain', { method: 'POST', form: { _csrf: csrfOf(page.text) } });
+  assert.match((await b.req('/admin/stores/dom-store')).text, /is working and reaches this server/);
+});
+
+test('login domain: drawer login finishes on the store login address; Shopify gets tokens from it', async () => {
+  const s1 = await api('/api/login/otp/send', { store: 'dom-store', returnTo: DOM_LOGIN, mobile: '9000000061' }, DOM_ORIGIN);
+  assert.equal(s1.status, 200, JSON.stringify(s1.json));
+  const v = await api('/api/login/otp/verify', { flowId: s1.json.flowId, code: lastCode('+919000000061') }, DOM_ORIGIN);
+  assert.equal(v.json.step, 'profile');
+  const p = await api('/api/login/profile', { flowId: s1.json.flowId, firstName: 'Dom', email: 'dom@example.com' }, DOM_ORIGIN);
+  const done = await api('/api/login/otp/verify', { flowId: s1.json.flowId, code: lastCode('dom@example.com') }, DOM_ORIGIN);
+  assert.equal(p.json.step, 'otp');
+  assert.equal(done.json.step, 'done', JSON.stringify(done.json));
+  assert.ok(done.json.redirect.startsWith(`${LOGIN2}/login/complete`), done.json.redirect);
+
+  const br = browser();
+  const hop = await br.req(done.json.redirect);
+  assert.equal(hop.location, DOM_LOGIN);
+  // Shopify's login -> /authorize on the store's login address -> straight back to Shopify
+  const auth = await br.go(domAuthorize());
+  assert.ok(auth.final, auth.text?.slice(0, 200));
+  assert.equal(auth.final.origin + auth.final.pathname, DOM_CALLBACK);
+
+  const res = await fetch(`${LOGIN2}/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code', code: auth.final.searchParams.get('code'), redirect_uri: DOM_CALLBACK, client_id: 'shop_dom-store', client_secret: SECRET,
+    }),
+  });
+  const tokens = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(tokens));
+  const { payload } = await jwtVerify(tokens.id_token, createRemoteJWKSet(new URL(`${LOGIN2}/jwks`)), { issuer: LOGIN2, audience: 'shop_dom-store' });
+  assert.equal(payload.email, 'dom@example.com');
+});
+
+test('login domain: checkout Sign in page and Google run on the store login address', async () => {
+  const br = browser();
+  const pageRes = await br.go(domAuthorize());
+  assert.equal(pageRes.status, 200, pageRes.text.slice(0, 200));
+  assert.match(pageRes.text, /data-idp="http:\/\/127\.0\.0\.1:3999"/);
+  const returnTo = pageRes.text.match(/data-return-to="([^"]+)"/)[1];
+  assert.ok(returnTo.startsWith(`${LOGIN2}/interaction/`));
+
+  const s1 = await api('/api/login/otp/send', { store: 'dom-store', returnTo, mobile: '9000000061' }, LOGIN2);
+  assert.equal(s1.cors, LOGIN2);
+  const v = await api('/api/login/otp/verify', { flowId: s1.json.flowId, code: lastCode('+919000000061') }, LOGIN2);
+  assert.equal(v.json.step, 'done', JSON.stringify(v.json));
+  assert.ok(v.json.redirect.startsWith(`${LOGIN2}/login/complete`));
+  const back = await br.go(v.json.redirect);
+  assert.ok(back.final, back.text?.slice(0, 200));
+  assert.equal(back.final.origin + back.final.pathname, DOM_CALLBACK);
+
+  const g = await browser().req(`${LOGIN2}/login/social/google?store=dom-store&returnTo=${encodeURIComponent(DOM_LOGIN)}`);
+  assert.equal(g.status, 303);
+  assert.equal(new URL(g.location).searchParams.get('redirect_uri'), `${LOGIN2}/social/google/callback`);
+  // other stores keep the main address
+  const g2 = await browser().req(`/login/social/google?store=test-store&returnTo=${encodeURIComponent(SHOPIFY_LOGIN)}`);
+  assert.equal(new URL(g2.location).searchParams.get('redirect_uri'), `${ISSUER}/social/google/callback`);
+});
+
+test('admin: setup guide is in the panel', async () => {
+  const b = await adminBrowser();
+  const g = await b.req('/admin/guide');
+  assert.equal(g.status, 200);
+  assert.match(g.text, /Setup guide/);
+  assert.match(g.text, /Shopify Plus/);
+  assert.match(g.text, /data-copy-textarea/);
+  assert.match((await b.req('/admin')).text, /href="\/admin\/guide"/);
 });

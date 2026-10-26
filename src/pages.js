@@ -3,7 +3,7 @@
 import { config } from './config.js';
 import { stores, publicConfig } from './stores.js';
 
-export const ASSET_VERSION = '9';
+export const ASSET_VERSION = '12';
 const FONTS = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({
@@ -38,9 +38,11 @@ const dataAttrs = (obj) => Object.entries(obj)
  * Hosted login page (checkout "Sign in", direct Shopify login, or continuing
  * after Google/Facebook when an email is still needed).
  */
-export function loginPage({ store, returnTo, error, resume }) {
+export function loginPage({
+  store, returnTo, error, resume, idp = config.issuer,
+}) {
   const attrs = {
-    idp: config.issuer,
+    idp,
     store: store.id,
     mode: 'page',
     'return-to': returnTo,
@@ -77,8 +79,8 @@ export function devPage({ users = [], claims, shopifyOk, hasRefresh, logoutUrl, 
   const row = (k, v) => `<tr><th>${esc(k)}</th><td><code>${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</code></td></tr>`;
   const result = claims ? `
     <div class="dev-alert ${shopifyOk ? 'ok' : 'bad'}">${shopifyOk
-    ? 'Login successful. Shopify yeh customer accept karega (email verified hai).'
-    : 'Shopify yeh login reject karega: verified email nahi hai.'}</div>
+    ? 'Sign-in successful. Shopify will accept this customer (email verified).'
+    : 'Shopify will reject this sign-in: the email is not verified.'}</div>
     <h2>ID token jo Shopify ko milega</h2>
     <table class="kv">${Object.entries(claims).map(([k, v]) => row(k, v)).join('')}${row('refresh_token', hasRefresh ? 'issued' : 'not issued')}</table>
     <div class="actions"><a class="dbtn" href="/dev/start">Dobara login (session reuse test)</a><a class="dbtn primary" href="${esc(logoutUrl)}">Logout test</a></div>`
@@ -93,7 +95,7 @@ export function devPage({ users = [], claims, shopifyOk, hasRefresh, logoutUrl, 
       <td>${esc((u.identities || []).map((i) => i.provider).join(', ') || '—')}</td>
       <td>${esc((u.stores || []).join(', ') || '—')}</td>
       <td>${esc(u.lastLoginMethod || '—')}</td></tr>`).join('')}
-  </table></div>` : '<p class="muted">Abhi koi customer nahi. Upar se login karke dekho.</p>';
+  </table></div>` : '<p class="muted">No customers yet. Sign in above to create one.</p>';
 
   const style = `<style>
     body.idp-page{font-family:Inter,system-ui,sans-serif;color:#111}
@@ -112,9 +114,9 @@ export function devPage({ users = [], claims, shopifyOk, hasRefresh, logoutUrl, 
   return shell('Login tester', stores.fallback().brand, `<main class="dev">
   <span class="badge">Test mode — Shopify ki jagah</span>
   <h1>Login tester</h1>
-  <p class="muted">Yeh page bilkul Shopify ki tarah login shuru karta hai aur dikhata hai ki Shopify ko kya milega.</p>
+  <p class="muted">This page starts a sign-in exactly as Shopify does and shows what Shopify receives.</p>
   ${error ? `<div class="dev-alert bad">${esc(error)}</div>` : ''}
-  ${signedOut ? '<div class="dev-alert ok">Signed out. Logout flow sahi kaam kar raha hai.</div>' : ''}
+  ${signedOut ? '<div class="dev-alert ok">Signed out. The sign-out flow works.</div>' : ''}
   ${result}
   <h2>Latest customers in MongoDB</h2>
   ${list}

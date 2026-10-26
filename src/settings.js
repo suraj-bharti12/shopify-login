@@ -3,7 +3,7 @@
 // keys) are stored encrypted with a key derived from OTP_SECRET, so keep
 // OTP_SECRET unchanged or re-enter the secrets after changing it.
 import crypto from 'node:crypto';
-import { config, refreshSocial } from './config.js';
+import { config, refreshSocial, socialEnabledFor } from './config.js';
 import { Setting } from './db.js';
 import { resetMailer } from './otp.js';
 import { resetSocialCache } from './social.js';
@@ -57,6 +57,11 @@ export const FIELDS = [
 ];
 export const fieldByPath = Object.fromEntries(FIELDS.map((f) => [f.path, f]));
 
+// The parts a store can set up with its own accounts (Stores -> store).
+// The SMS text has its own field on the store, so it is not repeated here.
+export const STORE_SECTIONS = ['sms', 'mail', 'social'];
+export const STORE_FIELDS = FIELDS.filter((f) => STORE_SECTIONS.includes(f.group) && f.path !== 'sms.template');
+
 // .env values, remembered so a cleared override falls back to them.
 const envDefaults = {};
 for (const f of FIELDS) envDefaults[f.path] = structuredClone(at(config, f.path));
@@ -64,13 +69,13 @@ for (const f of FIELDS) envDefaults[f.path] = structuredClone(at(config, f.path)
 let overrides = {}; // path -> stored value (secrets encrypted)
 
 const KEY = () => crypto.createHash('sha256').update(`idp-settings:${config.otpSecret}`).digest();
-function encrypt(text) {
+export function encrypt(text) {
   const iv = crypto.randomBytes(12);
   const c = crypto.createCipheriv('aes-256-gcm', KEY(), iv);
   const data = Buffer.concat([c.update(String(text), 'utf8'), c.final()]);
   return `enc:v1:${Buffer.concat([iv, c.getAuthTag(), data]).toString('base64')}`;
 }
-function decrypt(value) {
+export function decrypt(value) {
   if (typeof value !== 'string' || !value.startsWith('enc:v1:')) return value;
   try {
     const buf = Buffer.from(value.slice(7), 'base64');
@@ -96,8 +101,8 @@ function apply() {
 }
 
 // MongoDB field names can't contain dots: "sms.template" is stored as "sms:template".
-const toDb = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k.replaceAll('.', ':'), v]));
-const fromDb = (o) => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k.replaceAll(':', '.'), v]));
+export const toDb = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k.replaceAll('.', ':'), v]));
+export const fromDb = (o) => Object.fromEntries(Object.entries(o || {}).map(([k, v]) => [k.replaceAll(':', '.'), v]));
 
 export async function loadSettings() {
   const doc = await Setting.findById('settings').lean();
@@ -115,6 +120,32 @@ export function sourceOf(path) {
 export const currentValue = (path) => at(config, path);
 
 /**
+ * Reads one field from a submitted form. Returns undefined = leave as it is
+ * (not sent, or an empty secret), null = clear it, otherwise the new value.
+ */
+function readField(f, form, name) {
+  let v = form[name];
+  if (f.type === 'checkbox') {
+    if (form[`${name}__present`] === undefined) return undefined;
+    return v === 'on' || v === 'true';
+  }
+  if (v === undefined) return undefined;
+  v = String(v).trim();
+  if (v === '') return f.secret ? undefined : null;
+  if (f.type === 'number') {
+    const n = Number(v);
+    if (!Number.isFinite(n) || (f.min !== undefined && n < f.min) || (f.max !== undefined && n > f.max)) {
+      throw new Error(`${f.label} must be a number${f.min !== undefined ? ` between ${f.min} and ${f.max}` : ''}.`);
+    }
+    return n;
+  }
+  if (f.type === 'select' && !f.options.includes(v)) throw new Error(`${f.label}: choose one of ${f.options.join(', ')}.`);
+  if (f.path === 'apple.privateKey') v = v.replace(/\\n/g, '\n');
+  if (f.path === 'defaultCountryCode') v = v.replace('+', '');
+  return v;
+}
+
+/**
  * Saves the Settings form. Empty secret inputs keep the saved value; the
  * "clear" checkboxes remove the panel value (falling back to .env).
  */
@@ -123,30 +154,60 @@ export async function saveSettings(form) {
   const clear = new Set([].concat(form._clear || []));
   for (const f of FIELDS) {
     if (clear.has(f.path)) { delete next[f.path]; continue; }
-    let v = form[f.path];
-    if (f.type === 'checkbox') {
-      if (form[`${f.path}__present`] === undefined) continue;
-      v = v === 'on' || v === 'true';
-    } else {
-      if (v === undefined) continue;
-      v = String(v).trim();
-      if (f.secret && v === '') continue; // keep the saved one
-      if (f.type === 'number') {
-        if (v === '') { delete next[f.path]; continue; }
-        const n = Number(v);
-        if (!Number.isFinite(n) || (f.min !== undefined && n < f.min) || (f.max !== undefined && n > f.max)) {
-          throw new Error(`${f.label} must be a number${f.min !== undefined ? ` between ${f.min} and ${f.max}` : ''}.`);
-        }
-        v = n;
-      }
-      if (f.type === 'select' && !f.options.includes(v)) throw new Error(`${f.label}: choose one of ${f.options.join(', ')}.`);
-      if (f.path === 'apple.privateKey') v = v.replace(/\\n/g, '\n');
-      if (f.path === 'defaultCountryCode') v = v.replace('+', '');
-    }
-    if (!f.secret && (v === '' || v === envDefaults[f.path])) { delete next[f.path]; continue; }
+    const v = readField(f, form, f.path);
+    if (v === undefined) continue;
+    if (v === null || (!f.secret && v === envDefaults[f.path])) { delete next[f.path]; continue; }
     next[f.path] = f.secret ? encrypt(v) : v;
   }
   await Setting.updateOne({ _id: 'settings' }, { $set: { value: toDb(next) } }, { upsert: true });
   overrides = next;
   apply();
+}
+
+// ---------- per-store keys ----------
+
+/**
+ * Reads a store's own keys from the store form (inputs named "cred:<path>").
+ * Empty secret inputs keep the saved value. Returns the new creds object.
+ */
+export function storeCredsFromForm(form, existing = {}) {
+  const next = { ...existing };
+  for (const f of STORE_FIELDS) {
+    const v = readField(f, form, `cred:${f.path}`);
+    if (v === undefined) continue;
+    if (v === null) { delete next[f.path]; continue; }
+    next[f.path] = f.secret ? encrypt(v) : v;
+  }
+  return next;
+}
+
+/** A store's saved value for one field (secrets: true when one is saved). */
+export function storeCredValue(store, path) {
+  const v = store?.creds?.[path];
+  return fieldByPath[path]?.secret ? v !== undefined : v;
+}
+
+const SECTION_KEYS = { sms: ['sms'], mail: ['mail'], social: ['google', 'facebook', 'apple'] };
+
+/**
+ * The SMS, email and social keys a store actually uses: its own for the parts
+ * set to "this store's own", the Settings ones for the rest.
+ */
+export function forStore(store) {
+  const out = {
+    sms: config.sms, mail: config.mail, google: config.google, facebook: config.facebook, apple: config.apple,
+  };
+  for (const section of STORE_SECTIONS) {
+    if (!store?.own?.[section]) continue;
+    const part = {};
+    for (const k of SECTION_KEYS[section]) part[k] = structuredClone(config[k]);
+    for (const f of STORE_FIELDS.filter((x) => x.group === section)) {
+      const saved = store.creds?.[f.path];
+      put(part, f.path, saved === undefined ? undefined : (f.secret ? decrypt(saved) : saved));
+    }
+    if (section === 'mail' && !part.mail.smtp?.auth?.user) part.mail.smtp.auth = undefined;
+    Object.assign(out, part);
+  }
+  out.social = socialEnabledFor(out);
+  return out;
 }

@@ -9,10 +9,12 @@ import { User, Admin, AdminSession } from './db.js';
 import {
   stores, saveStore, deleteStore, syncClient, clientSecret, StoreError, customerGroups,
 } from './stores.js';
-import { saveSettings } from './settings.js';
+import { saveSettings, storeCredsFromForm, forStore } from './settings.js';
 import { sendSms, sendTestEmail, smsText } from './otp.js';
 import { normalizeEmail, normalizePhone, passwordProblem } from './users.js';
 import * as view from './adminViews.js';
+import { guidePage } from './adminGuide.js';
+import { issuerFor } from './issuers.js';
 
 const COOKIE = 'idp_admin';
 const FLASH = 'idp_flash';
@@ -177,7 +179,21 @@ export function adminRouter() {
     return g === '__own' ? id : g;
   };
 
+  // The store's own SMS / email / social keys. Bad values become a form error.
+  function credsInput(b, current) {
+    try {
+      return storeCredsFromForm(b, current?.creds);
+    } catch (e) {
+      throw new StoreError('creds', e.message);
+    }
+  }
+  const ownInput = (b, current) => Object.fromEntries(['sms', 'mail', 'social'].map((k) => [
+    k, b[`own_${k}`] === undefined ? Boolean(current?.own?.[k]) : b[`own_${k}`] === '1',
+  ]));
+
   const storeInput = (b, current) => ({
+    own: ownInput(b, current),
+    creds: credsInput(b, current),
     id: String(b.id || '').trim().toLowerCase(),
     customerGroup: groupInput(b, String(current?.id || b.id || '').trim().toLowerCase(), current?.customerGroup),
     name: b.name,
@@ -188,6 +204,7 @@ export function adminRouter() {
     extraRedirectUris: lines(b.extraRedirectUris),
     extraLogoutUris: lines(b.extraLogoutUris),
     afterLogin: b.afterLogin,
+    loginDomain: b.loginDomain,
     brand: {
       welcome: b.welcome, name: b.brandName, logoUrl: b.logoUrl, tagline: b.tagline, color: b.color, supportEmail: b.supportEmail,
     },
@@ -235,6 +252,72 @@ export function adminRouter() {
       if (!(e instanceof StoreError)) throw e;
       return renderStore(req, res, store, { values: { ...req.body, id: store.id }, error: e }, 400);
     }
+  });
+
+  // Is the store's login domain pointing at this server (DNS + HTTPS ready)?
+  r.post('/admin/stores/:id/check-domain', async (req, res) => {
+    const store = stores.get(req.params.id);
+    if (!store) return res.redirect(303, '/admin/stores');
+    const url = `${issuerFor(store)}/healthz`;
+    try {
+      const r2 = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'manual' });
+      const body = await r2.json().catch(() => null);
+      if (r2.ok && body?.ok && body.stores?.includes(store.id)) {
+        flash(res, 'ok', `${store.loginDomain} is working and reaches this server.`);
+      } else {
+        flash(res, 'error', `${store.loginDomain} answered, but not from this login server (status ${r2.status}). Check the CNAME record and that the domain is added in Render → Settings → Custom Domains.`);
+      }
+    } catch (e) {
+      const why = `${e.cause?.code || ''} ${e.cause?.message || e.message}`;
+      flash(res, 'error', /ENOTFOUND|EAI_AGAIN/.test(why)
+        ? `${store.loginDomain} is not found in DNS yet. Add the CNAME record; it can take up to an hour to work.`
+        : /CERT|SSL|TLS|certificate/i.test(why)
+          ? `${store.loginDomain} reaches a server, but its HTTPS certificate isn't ready. In Render → Settings → Custom Domains, check it shows "Certificate issued"; this takes a few minutes after DNS works.`
+          : `Could not open ${url}: ${why.trim()}`);
+    }
+    return res.redirect(303, `/admin/stores/${store.id}`);
+  });
+
+  // Test this store's SMS / email with the keys it actually uses.
+  r.post('/admin/stores/:id/test-sms', async (req, res) => {
+    const store = stores.get(req.params.id);
+    if (!store) return res.redirect(303, '/admin/stores');
+    const phone = normalizePhone(req.body.phone);
+    if (!phone) {
+      flash(res, 'error', 'Enter a valid mobile number.');
+    } else {
+      const { sms } = forStore(store);
+      const code = String(crypto.randomInt(0, 10 ** config.otp.length)).padStart(config.otp.length, '0');
+      try {
+        const out = await sendSms(phone, code, store.smsTemplate, sms);
+        flash(res, 'ok', sms.provider === 'console'
+          ? `SMS is in test mode (console): the text was printed in the server log: "${smsText(code, store.smsTemplate)}"`
+          : `Sent to ${phone} with ${store.own.sms ? 'this store\'s own' : 'the default'} ${sms.provider} account. Gateway reply: ${out?.raw || 'ok'}`);
+      } catch (e) {
+        flash(res, 'error', `SMS failed: ${e.message}`);
+      }
+    }
+    return res.redirect(303, `/admin/stores/${store.id}#sending`);
+  });
+
+  r.post('/admin/stores/:id/test-email', async (req, res) => {
+    const store = stores.get(req.params.id);
+    if (!store) return res.redirect(303, '/admin/stores');
+    const email = normalizeEmail(req.body.email);
+    if (!email) {
+      flash(res, 'error', 'Enter a valid email.');
+    } else {
+      const { mail } = forStore(store);
+      try {
+        await sendTestEmail(email, mail);
+        flash(res, 'ok', mail.transport === 'console'
+          ? 'Email is in test mode (console): it was printed in the server log, not sent.'
+          : `Test email sent to ${email} from ${mail.from}. Check the inbox (and Spam).`);
+      } catch (e) {
+        flash(res, 'error', `Email failed: ${e.message}`);
+      }
+    }
+    return res.redirect(303, `/admin/stores/${store.id}#sending`);
   });
 
   r.post('/admin/stores/:id/secret', async (req, res) => {
@@ -323,6 +406,8 @@ export function adminRouter() {
 
   // ---------- settings ----------
 
+  r.get('/admin/guide', (req, res) => html(res, guidePage(ctx(req, res))));
+
   r.get('/admin/settings', (req, res) => {
     html(res, view.settingsPage(ctx(req, res), { storesList: stores.all(), dbName: mongoose.connection.name }));
   });
@@ -342,11 +427,13 @@ export function adminRouter() {
     if (!phone) {
       flash(res, 'error', 'Enter a valid mobile number.');
     } else {
-      const template = stores.get(req.body.store)?.smsTemplate;
+      const chosen = stores.get(req.body.store);
+      const template = chosen?.smsTemplate;
+      const sms = chosen ? forStore(chosen).sms : config.sms;
       const code = String(crypto.randomInt(0, 10 ** config.otp.length)).padStart(config.otp.length, '0');
       try {
-        const out = await sendSms(phone, code, template);
-        flash(res, 'ok', config.sms.provider === 'console'
+        const out = await sendSms(phone, code, template, sms);
+        flash(res, 'ok', sms.provider === 'console'
           ? `SMS is in test mode (console): the text was printed in the server terminal: "${smsText(code, template)}"`
           : `Sent to ${phone}. Gateway reply: ${out?.raw || 'ok'}`);
       } catch (e) {

@@ -158,6 +158,11 @@ const StoreSchema = new Schema({
   },
   smsTemplate: String,
   customerGroup: String,
+  loginDomain: String, // e.g. login.berrylush.com (empty = the server's main address)
+  // Which parts use this store's own keys instead of Settings, and those keys
+  // (secrets encrypted, see settings.js). Keys look like "sms:gupshup:userId".
+  own: { sms: Boolean, mail: Boolean, social: Boolean },
+  creds: { type: Schema.Types.Mixed, default: {} },
 }, { timestamps: true, minimize: false });
 
 // Key/value settings. Secret values are stored encrypted (see settings.js).

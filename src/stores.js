@@ -5,8 +5,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { config, enabledSocial } from './config.js';
+import { config } from './config.js';
 import { db, Store, Setting } from './db.js';
+import { forStore, toDb, fromDb } from './settings.js';
 
 const DIR = config.storesDir
   ? path.resolve(config.storesDir)
@@ -37,6 +38,15 @@ export function normalize(raw) {
   if (color && !/^#[0-9a-fA-F]{3,8}$/.test(color)) throw new StoreError('color', 'Color must look like #8b1d24');
   const logoUrl = String(raw.brand?.logoUrl || '').trim();
   if (logoUrl && !/^https:\/\//.test(logoUrl)) throw new StoreError('logoUrl', 'Logo URL must start with https://');
+  // Own login address (e.g. login.berrylush.com), pointed at this server.
+  const loginDomain = cleanHost(raw.loginDomain);
+  if (loginDomain) {
+    if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?$/.test(loginDomain) && !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(loginDomain)) {
+      throw new StoreError('loginDomain', 'Login domain must look like login.yourbrand.com');
+    }
+    if (loginDomain === new URL(config.issuer).host) throw new StoreError('loginDomain', 'That is already the server\'s main address. Leave the field empty to use it.');
+    if (loginDomain.endsWith('.myshopify.com')) throw new StoreError('loginDomain', 'Use a domain of your own (e.g. login.yourbrand.com), not myshopify.com.');
+  }
   // Customer group: stores with the same group share customers.
   const customerGroup = String(raw.customerGroup || 'default').trim().toLowerCase();
   if (!/^[a-z0-9-]{2,40}$/.test(customerGroup)) throw new StoreError('customerGroup', 'Customer group: 2-40 lowercase letters, numbers or dashes.');
@@ -70,6 +80,10 @@ export function normalize(raw) {
     brand,
     smsTemplate: String(raw.smsTemplate || '').trim() || undefined, // empty = default from Settings
     customerGroup,
+    loginDomain,
+    // Own SMS / email / social keys instead of the Settings ones (settings.forStore)
+    own: { sms: Boolean(raw.own?.sms), mail: Boolean(raw.own?.mail), social: Boolean(raw.own?.social) },
+    creds: fromDb(raw.creds),
     // URLs Shopify sends customers back to (shown on Shopify's
     // "Connect to identity provider" screen).
     redirectUris: unique([
@@ -101,6 +115,9 @@ function toDoc(s) {
     brand: s.brand,
     smsTemplate: s.smsTemplate || '',
     customerGroup: s.customerGroup,
+    loginDomain: s.loginDomain || '',
+    own: s.own,
+    creds: toDb(s.creds),
   };
 }
 
@@ -142,7 +159,7 @@ export function publicConfig(store) {
   return {
     store: store.id,
     brand: store.brand,
-    social: enabledSocial,
+    social: forStore(store).social,
     countryCode: config.defaultCountryCode,
     otpLength: config.otp.length,
     resendSeconds: config.otp.resendCooldownSeconds,
@@ -186,6 +203,9 @@ export async function saveStore(raw, { isNew }) {
   if (isNew && await Store.exists({ _id: store.id })) throw new StoreError('id', `A store with ID "${store.id}" already exists.`);
   const clash = stores.all().find((s) => s.id !== store.id && s.origins.some((o) => store.origins.includes(o)));
   if (clash) throw new StoreError('domains', `Domain already used by store "${clash.id}".`);
+  if (store.loginDomain && store.domains.concat(store.shopDomain).includes(store.loginDomain.split(':')[0])) {
+    throw new StoreError('loginDomain', 'The login domain must be its own subdomain (e.g. login.yourbrand.com), not the store\'s website.');
+  }
   await Store.updateOne({ _id: store.id }, { $set: toDoc(store) }, { upsert: true });
   await stores.reload();
   await syncClient(stores.get(store.id));

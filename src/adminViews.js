@@ -1,8 +1,11 @@
 // HTML for the admin panel (/admin). Server-rendered, no build step.
 import { config, enabledSocial } from './config.js';
 import { esc, ASSET_VERSION } from './pages.js';
-import { FIELDS, sourceOf, currentValue } from './settings.js';
+import {
+  FIELDS, STORE_FIELDS, sourceOf, currentValue, storeCredValue,
+} from './settings.js';
 import { DEFAULT_BRAND, stores } from './stores.js';
+import { issuerFor } from './issuers.js';
 
 const V = ASSET_VERSION;
 const FONTS = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cormorant+Garamond:wght@400;500;600&display=swap';
@@ -12,6 +15,7 @@ const NAV = [
   ['stores', '/admin/stores', 'Stores', 'M4 7h16l-1 4H5L4 7zm1 4v9h14v-9M9 20v-5h6v5'],
   ['customers', '/admin/customers', 'Customers', 'M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm13 10v-2a4 4 0 0 0-3-3.9M16 2.1a4 4 0 0 1 0 7.8'],
   ['settings', '/admin/settings', 'Settings', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'],
+  ['guide', '/admin/guide', 'Setup guide', 'M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3V4zm0 13a3 3 0 0 1 3-3h11M8 8h6M8 11h4'],
   ['admins', '/admin/admins', 'Admins', 'M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z'],
 ];
 const icon = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
@@ -94,7 +98,7 @@ export function setupForm({ flash, values = {} }) {
 
 // ---------- small pieces ----------
 
-const copyable = (value, { secret = false } = {}) => `<div class="copy${secret ? ' is-secret' : ''}">
+export const copyable = (value, { secret = false } = {}) => `<div class="copy${secret ? ' is-secret' : ''}">
   <code data-value="${esc(value)}">${secret ? '•'.repeat(24) : esc(value)}</code>
   ${secret ? '<button type="button" class="btn sm" data-reveal>Show</button>' : ''}
   <button type="button" class="btn sm" data-copy>Copy</button></div>`;
@@ -175,8 +179,8 @@ function groupSelect(v, store, isNew) {
 export function storesPage(ctx, { list, customerCounts }) {
   const rows = list.map((s) => `<tr>
     <td><a class="strong" href="/admin/stores/${esc(s.id)}">${esc(s.name)}</a><div class="muted small">${esc(s.id)}</div></td>
-    <td>${esc(s.shopDomain)}${s.domains.length ? `<div class="muted small">${esc(s.domains.join(', '))}</div>` : ''}</td>
-    <td>${groupBadge(s)}</td>
+    <td>${esc(s.shopDomain)}${s.domains.length ? `<div class="muted small">${esc(s.domains.join(', '))}</div>` : ''}${s.loginDomain ? `<div class="small">login: ${esc(s.loginDomain)}</div>` : ''}</td>
+    <td>${groupBadge(s)}${ownBadges(s) ? `<div class="small" style="margin-top:4px">${ownBadges(s)}</div>` : ''}</td>
     <td>${customerCounts[s.id] || 0}</td>
     <td class="right"><a class="btn sm" href="/admin/stores/${esc(s.id)}">Open</a></td></tr>`).join('');
   return layout({
@@ -199,6 +203,7 @@ function storeForm({ store, values, error, isNew, csrf }) {
     smsTemplate: store.smsTemplate || '', domains: store.domains.join('\n'), accountDomain: store.accountDomain || '',
     extraRedirectUris: store.extraRedirectUris.join('\n'), extraLogoutUris: store.extraLogoutUris.join('\n'),
     customerGroup: store.customerGroup === store.id ? '__own' : store.customerGroup,
+    loginDomain: store.loginDomain || '',
   } : { welcome: DEFAULT_BRAND.welcome, color: '#8b1d24', afterLogin: 'current' });
   const err = (f) => (error?.field === f ? `<span class="field-error">${esc(error.message)}</span>` : '');
   const bad = (f) => (error?.field === f ? ' aria-invalid="true"' : '');
@@ -239,11 +244,22 @@ function storeForm({ store, values, error, isNew, csrf }) {
         </div>
       </section>
 
+      <section class="card" id="login-domain">
+        <h2>Login domain</h2>
+        <label><span>Login domain <span class="muted">(optional)</span></span>
+          <input name="loginDomain" value="${esc(v.loginDomain || '')}" placeholder="login.yourbrand.com"${bad('loginDomain')} data-initial="${esc(store?.loginDomain || '')}"${isNew ? '' : ' data-domain-input'}>
+          <span class="help">The address customers see on the login page and Shopify connects to, e.g. <code>login.berrylush.com</code>. Leave empty to use <code>${esc(new URL(config.issuer).host)}</code>. After saving, the store page shows the DNS record to add.</span>
+          <span class="field-warn" data-domain-warn hidden>Changing this after the store is connected in Shopify: update the Discovery URL in Shopify and paste the new theme snippet. If Shopify has locked the Discovery URL (customers already signed in), deactivate that provider and connect a new one.</span>
+          ${err('loginDomain')}</label>
+      </section>
+
       <section class="card">
         <h2>SMS text</h2>
         <label>OTP SMS for this store<textarea name="smsTemplate" rows="3" placeholder="${esc(config.sms.template)}">${esc(v.smsTemplate || '')}</textarea>
           <span class="help">Write <code>{otp}</code> where the code goes. Must match the DLT-approved template word for word. Leave empty to use the default from Settings.</span></label>
       </section>
+
+      ${sendingCard(store, values)}${err('creds')}
 
       <details class="card"${advancedOpen ? ' open' : ''}>
         <summary><h2>Advanced: custom domains</h2></summary>
@@ -297,9 +313,9 @@ export function newStorePage(ctx, { values, error }) {
 export function themeSnippet(store) {
   return `{%- comment -%} Login drawer for ${store.name}. Design comes from the login server. {%- endcomment -%}
 {%- unless customer -%}
-<div id="idp-login" data-idp="${config.issuer}" data-store="${store.id}" hidden></div>
+<div id="idp-login" data-idp="${issuerFor(store)}" data-store="${store.id}" hidden></div>
 <script>
-  fetch('${config.issuer}/widget.js', { headers: { 'ngrok-skip-browser-warning': '1' } })
+  fetch('${issuerFor(store)}/widget.js', { headers: { 'ngrok-skip-browser-warning': '1' } })
     .then(function (r) { return r.text(); })
     .then(function (code) { var s = document.createElement('script'); s.textContent = code; document.body.appendChild(s); });
 </script>
@@ -307,20 +323,31 @@ export function themeSnippet(store) {
 }
 
 export function storePage(ctx, { store, secret, values, error, customerCount }) {
-  const step = (n, title, body) => `<li><span class="step-n">${n}</span><div><h3>${title}</h3>${body}</div></li>`;
+  let stepNo = 0;
+  const step = (_, title, body) => `<li><span class="step-n">${++stepNo}</span><div><h3>${title}</h3>${body}</div></li>`;
   return layout({
     ...ctx,
     title: store.name,
     active: 'stores',
     extraHead: `<link rel="stylesheet" href="/static/login.css?v=${V}">`,
-    actions: `<span class="muted">${esc(store.shopDomain)} · ${customerCount} customers</span> ${groupBadge(store)}`,
+    actions: `<span class="muted">${esc(store.shopDomain)}${store.loginDomain ? ` · login: ${esc(store.loginDomain)}` : ''} · ${customerCount} customers</span> ${groupBadge(store)} ${ownBadges(store)}`,
     body: `
     <section class="card">
       <h2>Connect in Shopify</h2>
       <ol class="steps">
+        ${store.loginDomain ? step(0, `Point ${esc(store.loginDomain)} at this server`, `<p class="muted">Do this once, before connecting Shopify. You need access to the DNS of <b>${esc(store.loginDomain.split(':')[0].split('.').slice(1).join('.'))}</b> (GoDaddy, Cloudflare, Hostinger…).</p>
+          <ol class="mini">
+            <li>Render → this service → <b>Settings → Custom Domains → Add</b>: <code>${esc(store.loginDomain)}</code></li>
+            <li>In the domain's DNS add a <b>CNAME</b> record:
+              <dl class="kv"><dt>Name / Host</dt><dd>${copyable(store.loginDomain.split('.')[0])}</dd>
+              <dt>Value / Points to</dt><dd>${copyable(new URL(config.issuer).host)}</dd></dl>
+              <span class="muted small">On Cloudflare set the record to “DNS only” (grey cloud).</span></li>
+            <li>Wait until Render shows <b>Certificate issued</b> (a few minutes to an hour), then check:</li>
+          </ol>
+          <form method="post" action="/admin/stores/${esc(store.id)}/check-domain">${csrfInput(ctx.csrf)}<button class="btn sm" type="submit">Check ${esc(store.loginDomain)}</button></form>`) : ''}
         ${step(1, 'Fill Shopify\'s identity provider form', `<p class="muted">Shopify admin → Settings → Customer accounts → Authentication → Manage → Connect → <b>Custom or other</b>.</p>
           <dl class="kv">
-            <dt>Discovery URL</dt><dd>${copyable(`${config.issuer}/.well-known/openid-configuration`)}</dd>
+            <dt>Discovery URL</dt><dd>${copyable(`${issuerFor(store)}/.well-known/openid-configuration`)}</dd>
             <dt>Client ID</dt><dd>${copyable(store.clientId)}</dd>
             <dt>Client secret</dt><dd>${copyable(secret || '', { secret: true })}</dd>
             <dt>Additional scopes</dt><dd>${copyable('profile phone address offline_access')}</dd>
@@ -341,6 +368,19 @@ export function storePage(ctx, { store, secret, values, error, customerCount }) 
     ${error && !error.field ? `<div class="flash flash-error">${esc(error.message)}</div>` : ''}
     <h2 class="section-title">Store settings</h2>
     ${storeForm({ store, values, error, isNew: false, csrf: ctx.csrf })}
+
+    <div class="grid-2 even">
+      <section class="card"><h2>Test this store's SMS</h2>
+        <p class="muted small">Uses ${store.own.sms ? 'this store\'s own' : 'the default'} SMS account and this store's SMS text. Save changes first.</p>
+        <form method="post" action="/admin/stores/${esc(store.id)}/test-sms" class="stack">${csrfInput(ctx.csrf)}
+          <label>Mobile number<input name="phone" inputmode="numeric" required placeholder="98765 43210"></label>
+          <button class="btn" type="submit">Send test SMS</button></form></section>
+      <section class="card"><h2>Test this store's email</h2>
+        <p class="muted small">Uses ${store.own.mail ? 'this store\'s own' : 'the default'} email account. Save changes first.</p>
+        <form method="post" action="/admin/stores/${esc(store.id)}/test-email" class="stack">${csrfInput(ctx.csrf)}
+          <label>Email<input name="email" type="email" required value="${esc(ctx.admin.email)}"></label>
+          <button class="btn" type="submit">Send test email</button></form></section>
+    </div>
 
     <section class="card danger">
       <h2>Danger zone</h2>
@@ -431,45 +471,111 @@ export function customerPage(ctx, { u }) {
 
 // ---------- settings ----------
 
+// One settings input. `name` is the form field name, `val` the current value
+// (for secrets: whether one is saved).
+function fieldInput(f, name, val) {
+  const attrs = `name="${esc(name)}" id="f-${esc(name)}"`;
+  if (f.secret) {
+    const ph = val ? 'Saved — leave empty to keep' : 'Not set';
+    return f.type === 'textarea'
+      ? `<textarea ${attrs} rows="4" placeholder="${ph}" autocomplete="off"></textarea>`
+      : `<input ${attrs} type="password" placeholder="${ph}" autocomplete="new-password">`;
+  }
+  if (f.type === 'select') {
+    return `<select ${attrs}${f.group === 'sms' || f.group === 'mail' ? ' data-switch' : ''}>${f.options.map((o) => `<option${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  }
+  if (f.type === 'checkbox') return `<input type="hidden" name="${esc(name)}__present" value="1"><input ${attrs} type="checkbox"${val ? ' checked' : ''}>`;
+  if (f.type === 'textarea') return `<textarea ${attrs} rows="3">${esc(val ?? '')}</textarea>`;
+  return `<input ${attrs} ${f.type === 'number' ? `type="number"${f.min !== undefined ? ` min="${f.min}" max="${f.max}"` : ''}` : 'type="text"'} value="${esc(val ?? '')}" autocomplete="off">`;
+}
+
+const fieldBox = (f, name, input, meta = '') => `<div class="field${f.type === 'checkbox' ? ' field-check' : ''}"${f.when ? ` data-when="${esc(f.when)}"` : ''}>
+    <div class="field-top"><label for="f-${esc(name)}">${esc(f.label)}</label><span class="field-meta">${meta}</span></div>
+    ${input}${f.help ? `<span class="help">${esc(f.help)}</span>` : ''}</div>`;
+
 function field(f) {
   const src = sourceOf(f.path);
   const val = currentValue(f.path);
   const tag = src === 'panel' ? badge('saved here', 'ok') : src === 'env' ? badge('from .env') : badge('not set');
   const clear = src === 'panel' ? `<label class="clear"><input type="checkbox" name="_clear" value="${esc(f.path)}"> reset</label>` : '';
-  const attrs = `name="${esc(f.path)}" id="f-${esc(f.path)}"`;
-  const when = f.when ? ` data-when="${esc(f.when)}"` : '';
-  let input;
-  if (f.secret) {
-    const has = Boolean(val);
-    input = f.type === 'textarea'
-      ? `<textarea ${attrs} rows="4" placeholder="${has ? 'Saved — leave empty to keep' : 'Not set'}" autocomplete="off"></textarea>`
-      : `<input ${attrs} type="password" placeholder="${has ? 'Saved — leave empty to keep' : 'Not set'}" autocomplete="new-password">`;
-  } else if (f.type === 'select') {
-    input = `<select ${attrs}${f.group === 'sms' || f.group === 'mail' ? ' data-switch' : ''}>${f.options.map((o) => `<option${o === val ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
-  } else if (f.type === 'checkbox') {
-    input = `<input type="hidden" name="${esc(f.path)}__present" value="1"><input ${attrs} type="checkbox"${val ? ' checked' : ''}>`;
-  } else if (f.type === 'textarea') {
-    input = `<textarea ${attrs} rows="3">${esc(val ?? '')}</textarea>`;
-  } else {
-    input = `<input ${attrs} ${f.type === 'number' ? `type="number"${f.min !== undefined ? ` min="${f.min}" max="${f.max}"` : ''}` : 'type="text"'} value="${esc(val ?? '')}" autocomplete="off">`;
-  }
-  return `<div class="field${f.type === 'checkbox' ? ' field-check' : ''}"${when}>
-    <div class="field-top"><label for="f-${esc(f.path)}">${esc(f.label)}</label><span class="field-meta">${tag}${clear}</span></div>
-    ${input}${f.help ? `<span class="help">${esc(f.help)}</span>` : ''}</div>`;
+  return fieldBox(f, f.path, fieldInput(f, f.path, f.secret ? Boolean(val) : val), tag + clear);
 }
+
+// A store's own key: the value typed in (after a form error) or the saved one.
+function storeField(f, store, values) {
+  const name = `cred:${f.path}`;
+  let val = storeCredValue(store, f.path);
+  if (values && !f.secret) {
+    if (f.type === 'checkbox') val = values[`${name}__present`] !== undefined ? values[name] === 'on' : val;
+    else if (values[name] !== undefined) val = values[name];
+  }
+  if (val === undefined && f.type === 'select') val = currentValue(f.path); // start from the default provider
+  return fieldBox(f, name, fieldInput(f, name, val));
+}
+
+const SOCIAL_HELP = {
+  google: ['Google', 'console.cloud.google.com → APIs &amp; Services → Credentials → OAuth client ID (Web application). Add your Gmail as a test user while the app is in Testing.'],
+  facebook: ['Facebook', 'developers.facebook.com → your app → Facebook Login → Valid OAuth Redirect URIs.'],
+  apple: ['Apple', 'developer.apple.com → Services ID → Sign in with Apple → Return URL. Domain: your server address.'],
+};
+
+function defaultSummary(section) {
+  if (section === 'sms') return config.sms.provider;
+  if (section === 'mail') return config.mail.transport === 'smtp' ? config.mail.smtp.host || 'smtp' : 'console';
+  const on = Object.keys(enabledSocial).filter((k) => enabledSocial[k]);
+  return on.length ? on.join(', ') : 'none';
+}
+
+// "SMS, email & social login" card on the store form.
+function sendingCard(store, values) {
+  const own = (k) => (values?.[`own_${k}`] !== undefined ? values[`own_${k}`] === '1' : Boolean(store?.own?.[k]));
+  const block = (k, title, body) => `<div class="own-block" data-own-block>
+      <label><span>${title}</span>
+        <select name="own_${k}" data-own>
+          <option value="0"${own(k) ? '' : ' selected'}>Use default from Settings (${esc(defaultSummary(k))})</option>
+          <option value="1"${own(k) ? ' selected' : ''}>This store's own</option>
+        </select></label>
+      <div class="own-body" data-own-body${own(k) ? '' : ' hidden'}>${body}</div>
+    </div>`;
+  const fields = (group) => STORE_FIELDS.filter((f) => f.group === group).map((f) => storeField(f, store, values)).join('');
+  const social = Object.entries(SOCIAL_HELP).map(([p, [title, steps]]) => `<div class="provider">
+      <div class="field-top"><h3>${title}</h3></div>
+      <p class="muted small">${steps}</p>
+      <div class="kv-inline"><span>Redirect URI</span>${copyable(`${issuerFor(store)}/social/${p}/callback`)}</div>
+      ${STORE_FIELDS.filter((f) => f.provider === p).map((f) => storeField(f, store, values)).join('')}</div>`).join('');
+  return `<section class="card" id="sending">
+        <h2>SMS, email &amp; social login</h2>
+        <p class="muted small">Normally a store uses the accounts in Settings. Pick "This store's own" to use a different Gupshup, email or Google / Facebook / Apple account for this store only.</p>
+        ${block('sms', 'SMS (mobile OTP)', `<div class="fields" data-group="sms">${fields('sms')}</div>`)}
+        ${block('mail', 'Email (email OTP, forgot password)', `<div class="fields" data-group="mail">${fields('mail')}</div>
+          <p class="muted small">On Render's free plan use port 2525 (e.g. Brevo: smtp-relay.brevo.com) with SSL off.</p>`)}
+        ${block('social', 'Social logins', `<p class="muted small">Only the logins whose keys you fill in show for this store.</p>${social}`)}
+      </section>`;
+}
+
+const ownBadges = (s) => ['sms', 'mail', 'social'].filter((k) => s.own?.[k])
+  .map((k) => badge(`own ${k === 'mail' ? 'email' : k}`)).join(' ');
+
+// Settings social keys are used on the main address and on the login domains
+// of stores that use the default keys: each needs its redirect URI.
+const redirectUris = (list) => [...new Set([config.issuer, ...list.filter((s) => !s.own?.social).map(issuerFor)])];
 
 export function settingsPage(ctx, { storesList, dbName }) {
   const group = (g) => FIELDS.filter((f) => f.group === g).map(field).join('');
   const social = (p, title, steps) => `<div class="provider">
     <div class="field-top"><h3>${title}</h3>${enabledSocial[p] ? badge('on', 'ok') : badge('off')}</div>
     <p class="muted small">${steps}</p>
-    <div class="kv-inline"><span>Redirect URI</span>${copyable(`${config.issuer}/social/${p}/callback`)}</div>
+    ${redirectUris(storesList).map((iss) => `<div class="kv-inline"><span>Redirect URI</span>${copyable(`${iss}/social/${p}/callback`)}</div>`).join('')}
     ${FIELDS.filter((f) => f.provider === p).map(field).join('')}</div>`;
   return layout({
     ...ctx,
     title: 'Settings',
     active: 'settings',
-    body: `<form method="post" action="/admin/settings" class="settings">
+    body: `<p class="lead">These are the defaults for every store. A store can use its own SMS, email or social login accounts: Stores → open the store → <b>SMS, email &amp; social login</b>.${(() => {
+      const own = storesList.filter((s) => s.own?.sms || s.own?.mail || s.own?.social);
+      return own.length ? ` Stores with their own: ${own.map((s) => `<a href="/admin/stores/${esc(s.id)}#sending">${esc(s.name)}</a>`).join(', ')}.` : '';
+    })()}</p>
+    <form method="post" action="/admin/settings" class="settings">
     ${csrfInput(ctx.csrf)}
     <section class="card" id="sms"><h2>SMS (mobile OTP)</h2><div class="fields" data-group="sms">${group('sms')}</div></section>
     <section class="card" id="mail"><h2>Email (email OTP, forgot password)</h2><div class="fields" data-group="mail">${group('mail')}</div></section>

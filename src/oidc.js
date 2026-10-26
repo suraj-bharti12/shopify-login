@@ -7,6 +7,7 @@ import { exportJWK, generateKeyPair } from 'jose';
 import { config } from './config.js';
 import { db, User } from './db.js';
 import { stores } from './stores.js';
+import { issuerForRequest } from './issuers.js';
 import { messagePage } from './pages.js';
 
 // ---------- MongoDB storage for oidc-provider ----------
@@ -96,12 +97,34 @@ function loginPolicy() {
   return policy;
 }
 
-export async function createProvider() {
-  await MongoAdapter.ensureIndexes();
+// One OpenID provider per login address (default ISSUER + each store's login
+// domain). They share the database, signing key and customers.
+let jwks;
+const providers = new Map(); // issuer -> { provider, handler }
 
-  const provider = new Provider(config.issuer, {
+/** Startup: database indexes and the signing key. */
+export async function initOidc() {
+  await MongoAdapter.ensureIndexes();
+  jwks = await loadJwks();
+}
+
+function entryFor(issuer) {
+  if (!providers.has(issuer)) {
+    const provider = buildProvider(issuer);
+    providers.set(issuer, { provider, handler: provider.callback() });
+  }
+  return providers.get(issuer);
+}
+
+/** The provider for the login address this request came in on. */
+export const providerFor = (req) => entryFor(issuerForRequest(req)).provider;
+/** Express handler: discovery, /authorize, /token, /userinfo, /jwks, /logout. */
+export const oidcHandler = () => (req, res, next) => entryFor(issuerForRequest(req)).handler(req, res, next);
+
+function buildProvider(issuer) {
+  const provider = new Provider(issuer, {
     adapter: MongoAdapter,
-    jwks: await loadJwks(),
+    jwks,
     cookies: {
       keys: config.cookieKeys,
       long: { signed: true, httpOnly: true, sameSite: 'lax', secure: config.isProd },

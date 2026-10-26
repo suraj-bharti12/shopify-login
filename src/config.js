@@ -97,10 +97,15 @@ export const config = {
 // Which social logins have keys. Kept as one object (others hold a reference)
 // and refreshed when keys change in the admin panel.
 export const enabledSocial = {};
+/** Which social logins have their keys filled in, for a set of keys. */
+export function socialEnabledFor(k) {
+  return {
+    google: Boolean(k.google?.clientId && k.google?.clientSecret),
+    facebook: Boolean(k.facebook?.appId && k.facebook?.appSecret),
+    apple: Boolean(k.apple?.clientId && k.apple?.teamId && k.apple?.keyId && k.apple?.privateKey),
+  };
+}
 export function refreshSocial() {
-  enabledSocial.google = Boolean(config.google.clientId && config.google.clientSecret);
-  enabledSocial.facebook = Boolean(config.facebook.appId && config.facebook.appSecret);
-  enabledSocial.apple = Boolean(config.apple.clientId && config.apple.teamId && config.apple.keyId && config.apple.privateKey);
-  return enabledSocial;
+  return Object.assign(enabledSocial, socialEnabledFor(config));
 }
 refreshSocial();

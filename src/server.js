@@ -9,7 +9,7 @@ import { connectDb, migrateUsers } from './db.js';
 import { stores, initStores } from './stores.js';
 import { loadSettings } from './settings.js';
 import { adminRouter, initAdmin } from './admin.js';
-import { createProvider } from './oidc.js';
+import { initOidc, oidcHandler } from './oidc.js';
 import { loginRouter } from './login.js';
 import { devRouter } from './dev.js';
 import { messagePage } from './pages.js';
@@ -20,7 +20,7 @@ export async function createApp() {
   await connectDb();
   await migrateUsers();
   await loadSettings();
-  const provider = await createProvider();
+  await initOidc();
   await initStores();
   await initAdmin();
 
@@ -79,11 +79,11 @@ ${js}`);
 
   app.use(cookieParser(config.cookieKeys));
   app.use(adminRouter());
-  app.use(loginRouter(provider));
+  app.use(loginRouter());
   if (config.devTestClient) app.use(await devRouter());
 
-  // Discovery, /authorize, /token, /userinfo, /jwks, /logout
-  app.use(provider.callback());
+  // Discovery, /authorize, /token, /userinfo, /jwks, /logout (per login address)
+  app.use(oidcHandler());
 
   app.use((err, req, res, next) => {
     console.error('[app] error', err);
@@ -105,6 +105,8 @@ if (process.argv[1] && path.resolve(process.argv[1]).toLowerCase() === fileURLTo
     console.log(`Admin panel:   ${config.issuer}/admin`);
     if (config.devTestClient) console.log(`Test page:     ${config.issuer}/dev`);
     console.log(`Stores:        ${list.map((s) => s.id).join(', ') || 'none yet (add one in the admin panel)'}`);
+    const domains = list.filter((s) => s.loginDomain).map((s) => `${s.loginDomain} (${s.id})`);
+    if (domains.length) console.log(`Login domains: ${domains.join(', ')}`);
     console.log(`SMS: ${config.sms.provider} | Email: ${config.mail.transport} | Social: ${Object.keys(enabledSocial).filter((k) => enabledSocial[k]).join(', ') || 'none'}`);
   });
 }

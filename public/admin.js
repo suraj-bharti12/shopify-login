@@ -46,12 +46,29 @@
     update();
   });
 
+  // Store form: show a store's own SMS / email / social fields only when chosen
+  document.querySelectorAll('[data-own]').forEach(function (sel) {
+    var body = sel.closest('[data-own-block]').querySelector('[data-own-body]');
+    var update = function () { body.hidden = sel.value !== '1'; };
+    sel.addEventListener('change', update);
+    update();
+  });
+
   // Store form: warn before moving a store to another customer list
   var groupSel = document.querySelector('select[name="customerGroup"][data-initial]');
   var groupWarn = document.querySelector('[data-group-warn]');
   if (groupSel && groupWarn && groupSel.getAttribute('data-initial')) {
     groupSel.addEventListener('change', function () {
       groupWarn.hidden = groupSel.value === groupSel.getAttribute('data-initial');
+    });
+  }
+
+  // Store form: warn before changing a connected store's login domain
+  var domainInput = document.querySelector('[data-domain-input]');
+  var domainWarn = document.querySelector('[data-domain-warn]');
+  if (domainInput && domainWarn && domainInput.getAttribute('data-initial')) {
+    domainInput.addEventListener('input', function () {
+      domainWarn.hidden = domainInput.value.trim().toLowerCase() === domainInput.getAttribute('data-initial');
     });
   }
 

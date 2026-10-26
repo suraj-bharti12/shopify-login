@@ -194,3 +194,36 @@ body.auth{background:var(--bg);display:grid;place-items:center;grid-template-col
   .kv{grid-template-columns:1fr;gap:4px}
   .kv dd{margin-bottom:10px}
 }
+
+.own-block{border-top:1px solid var(--line,#e5e7eb);padding-top:14px;margin-top:14px}
+.own-block:first-of-type{border-top:0;margin-top:4px;padding-top:0}
+.own-body{margin-top:12px;padding:14px;border-radius:10px;background:var(--bg,#f6f6f4)}
+.own-body[hidden]{display:none}
+.own-body .provider{margin-top:10px}
+.steps ol.mini{margin:8px 0 10px;padding-left:18px;display:grid;gap:8px}
+.steps ol.mini .kv{margin-top:6px}
+
+/* Setup guide */
+.toc{display:flex;flex-wrap:wrap;gap:6px 8px;padding:14px 16px}
+.toc a{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:8px;color:var(--ink-2);text-decoration:none;font-size:13px;background:var(--bg)}
+.toc a:hover{color:var(--ink);background:var(--line)}
+.toc a span{font-size:11px;font-weight:600;color:var(--muted)}
+.guide-table td{font-size:13.5px;line-height:1.5}
+.guide-table td:first-child{width:32%}
+.guide-table td:last-child{color:var(--ink-2)}
+.guide-table th:nth-child(3),.guide-table td:nth-child(3){width:26%}
+.card .scroll{margin:0 -22px;border-top:1px solid var(--line)}
+.card .scroll .table th:first-child,.card .scroll .table td:first-child{padding-left:22px}
+ul.checks,ol.order{margin:0;padding-left:20px;display:grid;gap:10px;line-height:1.55}
+.card>.kv{margin-top:14px}
+.card>.note,.card>.muted.small{margin-top:12px;margin-bottom:0}
+html{scroll-behavior:smooth;scroll-padding-top:16px}
+@media (max-width:700px){
+  .guide-table thead{display:none}
+  .guide-table,.guide-table tbody,.guide-table tr,.guide-table td{display:block;width:auto!important}
+  .guide-table tr{padding:12px 16px;border-bottom:1px solid var(--line)}
+  .guide-table td{border:0!important;padding:3px 0!important}
+  .guide-table td:nth-child(2)::before{content:"Why: ";font-weight:600;color:var(--ink)}
+  .guide-table td:nth-child(3)::before{content:"Where: ";font-weight:600;color:var(--ink)}
+  .card .scroll .table td:first-child{padding-left:0}
+}

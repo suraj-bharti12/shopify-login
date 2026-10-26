@@ -8,7 +8,8 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { rateLimit } from 'express-rate-limit';
-import { config, enabledSocial } from './config.js';
+import { config } from './config.js';
+import { forStore } from './settings.js';
 import { User, Otp, LoginFlow, LoginTicket } from './db.js';
 import { stores, publicConfig } from './stores.js';
 import { issueOtp, verifyOtp, OtpError, maskTarget } from './otp.js';
@@ -18,6 +19,10 @@ import {
   attachVerifiedEmail, upsertSocialUser, recordLogin,
 } from './users.js';
 import { loginPage, messagePage } from './pages.js';
+import { providerFor } from './oidc.js';
+import {
+  issuerFor, issuerForRequest, loginOrigins, DEFAULT_ORIGIN,
+} from './issuers.js';
 
 class LoginError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
@@ -27,15 +32,16 @@ const FLOW_TTL = 30 * 60_000;
 const TICKET_TTL = 2 * 60_000;
 const AUTOLOGIN_TTL = 5 * 60_000;
 const COOKIE = { autologin: 'idp_autologin', social: 'idp_social' };
-const ISSUER_ORIGIN = new URL(config.issuer).origin;
 
 const token = () => crypto.randomBytes(24).toString('base64url');
 const cookieOpts = (maxAge) => ({ httpOnly: true, signed: true, sameSite: 'lax', secure: config.isProd, path: '/', maxAge });
 const readCookie = (req, name) => { try { return JSON.parse(req.signedCookies?.[name] || 'null'); } catch { return null; } };
 const later = (ms) => new Date(Date.now() + ms);
 
-// Pages of this store (or Shopify's own pages) may call the API for it.
-const originAllowed = (origin, store) => origin === ISSUER_ORIGIN || store.origins.includes(origin);
+// The store's own sites, and our hosted login page (default address or the
+// store's login domain), may call the API for it.
+const storeLoginOrigins = (store) => [DEFAULT_ORIGIN, new URL(issuerFor(store)).origin];
+const originAllowed = (origin, store) => storeLoginOrigins(store).includes(origin) || store.origins.includes(origin);
 
 // Where may a login for `store` send the browser afterwards?
 function safeReturnTo(store, raw) {
@@ -44,11 +50,11 @@ function safeReturnTo(store, raw) {
   if (u.protocol !== 'https:' && !(u.protocol === 'http:' && !config.isProd)) return null;
   const ok = store.origins.some((o) => new URL(o).host === u.host)
     || u.host === 'shopify.com'
-    || (u.origin === ISSUER_ORIGIN && u.pathname.startsWith('/interaction/'));
+    || (storeLoginOrigins(store).includes(u.origin) && u.pathname.startsWith('/interaction/'));
   return ok ? u.toString() : null;
 }
 
-export function loginRouter(provider) {
+export function loginRouter() {
   const router = express.Router();
   const json = express.json({ limit: '10kb' });
   const form = express.urlencoded({ extended: false, limit: '20kb' });
@@ -59,7 +65,7 @@ export function loginRouter(provider) {
   // ---------- CORS for the store drawer ----------
   router.use('/api/login', (req, res, next) => {
     const origin = req.get('origin');
-    const known = Boolean(origin && (origin === ISSUER_ORIGIN || stores.byOrigin(origin)));
+    const known = Boolean(origin && (loginOrigins().has(origin) || stores.byOrigin(origin)));
     if (known) {
       res.set('Access-Control-Allow-Origin', origin);
       res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -107,7 +113,7 @@ export function loginRouter(provider) {
   }
 
   async function sendCode(flow, store, params) {
-    const otp = await issueOtp({ flowId: flow.id, store, ...params });
+    const otp = await issueOtp({ flowId: flow.id, store, setup: forStore(store), ...params });
     flow.otpId = otp._id;
     await flow.save();
     return { step: 'otp', flowId: flow.id, channel: params.channel, masked: maskTarget(params.target), length: config.otp.length };
@@ -128,7 +134,11 @@ export function loginRouter(provider) {
       _id: token(), userId: user._id, storeId: store.id, method: flow.method, returnTo: flow.returnTo, expiresAt: later(TICKET_TTL),
     });
     await LoginFlow.deleteOne({ _id: flow._id });
-    return { step: 'done', redirect: `${config.issuer}/login/complete?ticket=${encodeURIComponent(ticket.id)}` };
+    // The login cookie must be set on the address that finishes the login:
+    // the hosted page's own address, or the store's login address (drawer).
+    const back = new URL(flow.returnTo);
+    const base = back.pathname.startsWith('/interaction/') && loginOrigins().has(back.origin) ? back.origin : issuerFor(store);
+    return { step: 'done', redirect: `${base}/login/complete?ticket=${encodeURIComponent(ticket.id)}` };
   }
 
   // ---------- API ----------
@@ -270,10 +280,11 @@ export function loginRouter(provider) {
       const p = req.params.provider;
       const store = stores.get(req.query.store);
       const returnTo = store && safeReturnTo(store, req.query.returnTo);
-      if (!enabledSocial[p] || !returnTo) {
+      const setup = store && forStore(store);
+      if (!setup?.social[p] || !returnTo) {
         return page(res, messagePage({ title: 'Not available', message: 'This sign-in option is not available right now.', store }), 400);
       }
-      const { url, checks } = await startSocialLogin(p);
+      const { url, checks } = await startSocialLogin(p, setup, issuerForRequest(req));
       res.cookie(COOKIE.social, JSON.stringify({ ...checks, storeId: store.id, returnTo }), cookieOpts(15 * 60_000));
       return res.redirect(303, url);
     } catch (e) { return nextFn(e); }
@@ -292,7 +303,7 @@ export function loginRouter(provider) {
     const store = checks && stores.get(checks.storeId);
     if (!store) return page(res, messagePage({ title: 'Session expired', message: 'Please go back to the store and try again.' }), 400);
     try {
-      const profile = await finishSocialLogin(req.params.provider, req.query, checks);
+      const profile = await finishSocialLogin(req.params.provider, req.query, checks, forStore(store));
       const { user, isNew } = await upsertSocialUser(profile, store.customerGroup);
       if (user.status !== 'active') throw new LoginError('This account is disabled. Please contact support.');
       if (!user.email || !user.emailVerified) {
@@ -325,7 +336,7 @@ export function loginRouter(provider) {
         return page(res, messagePage({ title: 'Session expired', message: 'Please go back to the store and try again.', store }), 400);
       }
       return page(res, loginPage({
-        store, returnTo: flow.returnTo, resume: { flowId: flow.id, needName: !user.firstName, email: user.email || '' },
+        store, returnTo: flow.returnTo, idp: issuerForRequest(req), resume: { flowId: flow.id, needName: !user.firstName, email: user.email || '' },
       }));
     } catch (e) { return nextFn(e); }
   });
@@ -334,6 +345,7 @@ export function loginRouter(provider) {
 
   router.get('/interaction/:uid', async (req, res, nextFn) => {
     try {
+      const provider = providerFor(req);
       const details = await provider.interactionDetails(req, res);
       if (details.uid !== req.params.uid) {
         return page(res, messagePage({ title: 'Session expired', message: 'Please go back to the store and sign in again.' }), 400);
@@ -364,7 +376,8 @@ export function loginRouter(provider) {
           }, { mergeWithLastSubmission: false });
         }
       }
-      return page(res, loginPage({ store, returnTo: `${config.issuer}/interaction/${details.uid}` }));
+      const here = issuerForRequest(req);
+      return page(res, loginPage({ store, idp: here, returnTo: `${here}/interaction/${details.uid}` }));
     } catch (err) {
       if (err?.name === 'SessionNotFound' || err?.name === 'InvalidRequest') {
         return page(res, messagePage({ title: 'Session expired', message: 'Please go back to the store and click "Sign in" again.' }), 400);

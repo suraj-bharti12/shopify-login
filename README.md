@@ -1,174 +1,125 @@
 # Shopify Login Server (Node.js + MongoDB)
 
-Aapka apna customer login: **mobile OTP, email OTP, email + password, forgot password, Google, Facebook, Apple**. Customers aapke MongoDB mein rehte hain. Shopify isse **"Custom or other" identity provider** ki tarah use karta hai.
+A customer identity provider for Shopify stores: **mobile OTP, email OTP, email and password, password reset, Google, Facebook and Apple**. Customers are stored in your own MongoDB database, and Shopify connects to the server as a **"Custom or other" identity provider** (OpenID Connect).
 
-- **Store par:** account icon dabate hi right side se login drawer khulta hai, aur login ke baad customer usi page par wapas aata hai.
-- **Checkout "Sign in" par:** simple login page khulta hai, same design mein.
-- **Ek server, kai stores:** har store ki ek JSON file hoti hai, naya code nahi likhna padta.
+- The store's account icon opens a **login drawer** on the storefront.
+- Checkout "Sign in" opens a simple hosted login page.
+- The **Admin Panel** (`/admin`) manages stores, settings, customers and admins without editing code.
 
----
-
-## Folder
-
-```
-src/
-  server.js    server start
-  config.js    .env settings (sab stores ke liye same)
-  stores.js    stores/*.json padhta hai
-  login.js     login API + hosted page + Google/FB/Apple
-  oidc.js      Shopify se baat (OpenID Connect)
-  otp.js       OTP banana, SMS (Gupshup/MSG91/Twilio) aur email bhejna
-  users.js     account merge / social linking
-  db.js        MongoDB models
-  social.js    Google / Facebook / Apple
-  pages.js     HTML pages
-  dev.js       /dev test page
-public/
-  login.js     login UI (drawer + page dono yahi)
-  login.css    login design
-stores/
-  mojito-plus1.json   ek store = ek file
-  _example.json       naye store ke liye template
-scripts/
-  store.js     store setup command
-  sms-test.js  ek test SMS
-test/e2e.test.js
-```
+> Adding a new client store? Open **Admin Panel → Setup guide** first. It lists everything to collect from the client, why it is needed, and where it goes.
 
 ---
 
-## 1. Pehli baar chalana
+## 1. Running the server
 
 ```bash
 npm install
-copy .env.example .env        # Mac/Linux: cp .env.example .env
+npm start
 ```
 
-`.env` mein bharo: `ISSUER`, `MONGODB_URI`, `COOKIE_KEYS`, `OTP_SECRET`, Gupshup, Google keys. Har line ke upar comment mein likha hai kya daalna hai.
+Only these settings are required in `.env` (see `.env.example`):
 
-### ISSUER: ngrok ka permanent domain (testing)
-
-Ngrok ka random URL (`xxxx.ngrok-free.app`) har restart par badal jata hai, aur tab Shopify **"Discovery document request error"** deta hai. Isliye free **permanent domain** use karo:
-
-1. https://dashboard.ngrok.com/domains par apna domain dekho (jaise `abc-def.ngrok-free.dev`).
-2. `.env` mein: `ISSUER=https://abc-def.ngrok-free.dev`
-3. Hamesha isi command se ngrok chalao:
-   ```
-   ngrok http --url abc-def.ngrok-free.dev 3000
-   ```
-
-### Store setup
-
-```bash
-npm run store -- setup mojito-plus1
-```
-
-Ye command 3 kaam karti hai:
-- Shopify form ke liye **Discovery URL, Client ID, Client secret** print karti hai.
-- `theme/idp-login.mojito-plus1.liquid` naam ki theme snippet file banati hai.
-- Batati hai ki Shopify screen par kaun se callback URLs dikhne chahiye. Ye pehle se allowed hote hain.
-
-Phir:
-
-```bash
-npm run dev
-```
-
-Browser mein `http://localhost:3000/dev` kholo. Ye test page Shopify ki jagah kaam karta hai.
-
-### Shopify form (Settings > Customer accounts > Authentication > Manage providers)
-
-| Field | Value |
+| Setting | Purpose |
 |---|---|
-| Provider | Custom or other |
-| Discovery URL | `https://<ISSUER>/.well-known/openid-configuration` |
-| Client ID / Client secret | `store setup` ke output se |
-| Additional scopes | `profile phone address offline_access` |
-| Post-sign-out redirect URI parameter name | `post_logout_redirect_uri` |
+| `ISSUER` | The server's public HTTPS address. On Render it can be left out; `https://<name>.onrender.com` is used. |
+| `MONGODB_URI` | MongoDB connection string |
+| `COOKIE_KEYS`, `OTP_SECRET` | Long random strings. Never change `OTP_SECRET`: it encrypts the passwords and keys saved in the Admin Panel. |
+| `PORT`, `NODE_ENV` | Server port and mode |
 
-### Theme mein drawer lagana
+SMS, email, Google/Facebook/Apple keys and OTP rules can also be set in `.env`, but **Admin Panel → Settings** is easier. Values saved in the panel take priority over `.env`.
 
-1. Shopify: **Online Store > Themes > Edit code > Snippets > Add a new snippet**, naam `idp-login`.
-2. VS Code mein `theme/idp-login.<store>.liquid` kholo, **Ctrl+A**, copy karo, aur snippet mein paste karke **Save** karo.
-3. **Layout > theme.liquid** mein `</body>` ke theek upar ye line daalo:
-   ```liquid
-   {% render 'idp-login' %}
-   ```
+## 2. Admin Panel
 
-Jab bhi `ISSUER` badle ya design (`public/login.css` / `login.js`) badlo, tab `npm run store -- snippet <store>` chalao aur nayi file snippet mein dobara paste karo.
+1. Start the server. On first run the terminal shows a **setup code**.
+2. Open `<ISSUER>/admin` and enter the setup code, your email and a password.
+3. Sign in with that email and password from then on.
 
----
-
-## 2. Naya store jodna (koi naya code nahi)
-
-1. `stores/_example.json` copy karke `stores/<naya-id>.json` banao, jaise `stores/fabindia.json`.
-2. Usme ye values bharo:
-   - `shopDomain`: `xyz.myshopify.com`
-   - `shopId`: Shopify callback URL mein jo number hota hai (`shopify.com/<shopId>/...`)
-   - `domains`: custom domain ho to, jaise `["www.fabindia.com"]`
-   - `brand`: logo URL, naam, tagline, color
-   - `smsTemplate`: us brand ka DLT-approved SMS text, OTP ki jagah `{otp}` likhna
-3. Ye command chalao:
-   ```
-   npm run store -- setup <naya-id>
-   ```
-4. Server restart karo.
-5. Shopify form bharo aur theme snippet lagao (upar wale steps).
-
-Customers ka database sab stores mein shared hai. Ek customer ek hi mobile/email se har store mein login kar sakta hai, aur `users.stores` mein dikhta hai ki kis-kis store mein aaya.
-
-**Custom domain:** agar Shopify ki screen par callback URL `account.yourbrand.com` jaisa ho, to store file mein `"accountDomain": "account.yourbrand.com"` daalo aur `setup` dobara chalao. Koi extra URL ho to `extraRedirectUris` / `extraLogoutUris` mein daal do.
-
-### Store commands
+Forgot your password? Another admin can add you again under **Admins**, or run this from the project folder with a `.env` that points to the same database:
 
 ```
-npm run store -- list                      sab stores aur kaun setup hai
-npm run store -- setup <id>                client + snippet (secret same rehta hai)
-npm run store -- setup <id> --new-secret   naya client secret (Shopify mein bhi update karna)
-npm run store -- snippet <id>              sirf theme snippet dobara banana
-npm run store -- cleanup                   purane / bekaar clients hatana
+npm run admin:reset -- you@email.com NewPassword123
 ```
 
----
+### Adding a store
+1. **Stores → Add store**: store ID, name, Shopify domain, Shop ID, login domain, branding and SMS text. A live preview is shown next to the form.
+2. The store page then shows each step with copy buttons:
+   - **Login domain** (if set): the Render custom domain and DNS record to add, with a **Check** button.
+   - **Shopify identity provider form**: Discovery URL, Client ID, Client secret, scopes and logout parameter.
+   - **Theme snippet**: paste it into a new snippet named `idp-login`, then add `{% render 'idp-login' %}` before `</body>` in `layout/theme.liquid`.
+3. Changes to the logo, colours or text apply to the drawer immediately; the snippet never needs to be pasted again unless the login address changes.
 
-## 3. Login providers
+### Login domain per store (e.g. `login.brand.com`)
+Each store can have its own login address. One server answers on all of them. Leave the field empty to use the server's main address. After saving, the store page shows the exact CNAME record. Connect the store in Shopify only after **Check** confirms the domain works, because Shopify locks the Discovery URL after the first customer signs in. Google and Facebook need a redirect URI for each login domain; the panel lists them.
 
-**Google** (console.cloud.google.com > APIs & Services):
-1. OAuth consent screen banao. Testing mode mein apna Gmail **Test users** mein add karo.
-2. Credentials > OAuth client ID > Web application. **Authorized redirect URI:** `https://<ISSUER>/social/google/callback`
-3. `.env` mein `GOOGLE_CLIENT_ID` aur `GOOGLE_CLIENT_SECRET` daalo, phir server restart karo.
+### SMS, email and social sign-in per store
+Store page → **SMS, email & social login**. For each part choose:
+- **Use default from Settings**: the account configured in Settings (shared by all stores).
+- **This store's own**: a separate Gupshup/MSG91/Twilio account, SMTP account, or Google/Facebook/Apple keys for this store only.
 
-**Facebook:** Facebook Login > Valid OAuth Redirect URI: `https://<ISSUER>/social/facebook/callback`
+The store page has **Test this store's SMS** and **Test this store's email** buttons. Passwords and keys are stored encrypted. OTP rules and the default country code come from Settings for all stores.
 
-**Apple:** Services ID > Return URL: `https://<ISSUER>/social/apple/callback`. Isme Domain bhi `ISSUER` wala daalna.
+### Customer lists
+Each store either keeps a **separate** customer list (the default for new stores) or **shares** one with other stores. With separate lists the same email or mobile number can exist once per store, and signing in on one store does not sign the customer in on another. If a store's list is changed after customers have signed in and Shopify shows "The sign-in method you used doesn't match this account", unlink the customer in Shopify admin → Customers.
 
-**Gupshup SMS:** `SMS_PROVIDER=gupshup`, user ID aur password `.env` mein. Store ka SMS text store file ke `smsTemplate` mein hota hai. Check karne ke liye:
+Stores and customers created before customer lists existed are in the shared list `default`.
+
+### Other pages
+- **Settings**: default SMS provider and text, email, social keys and OTP rules, with test SMS and test email buttons.
+- **Customers**: search by email, mobile or name, filter by customer list, view details, block or unblock, remove a social link, or delete.
+- **Setup guide**: client requirements, setup order and a ready-to-send request for the client.
+- **Admins**: add or remove admins and change your password.
+
+## 3. Deploying on Render
+
+1. Push the code to a private GitHub repository.
+2. Render → **New → Blueprint** → select the repository. `render.yaml` configures the service; Render asks for two values:
+   - `MONGODB_URI`: the same Atlas connection string as in `.env`.
+   - `OTP_SECRET`: **exactly** the value from `.env`, so the secrets saved in the panel can be decrypted.
+3. After the first deploy:
+   - Add the service's outbound IP ranges (Render → service → **Connect → Outbound**) to MongoDB Atlas → Network Access.
+   - Add `https://<server address>/social/google/callback` (and one per login domain) to the Google OAuth client.
+   - Sign in to `/admin` with your existing admin account; the database is shared.
+   - Copy each store's new snippet into its theme and update the Discovery URL in Shopify.
+
+`render.yaml` uses the **free** plan, which sleeps after 15 minutes of inactivity and takes about a minute to wake. Use it for testing only.
+
+## 4. Before going live
+
+- The client's store must be on **Shopify Plus**. Shopify allows a custom identity provider only on Plus.
+- Use a **paid, always-on** instance. Shopify requires the discovery, token and userinfo endpoints to respond within one second. Keep MongoDB Atlas in the same region as the server.
+- Set `NODE_ENV=production` and `DEV_TEST_CLIENT=false`.
+- Decide each store's final login address before connecting it in Shopify. Shopify locks the Discovery URL and Client ID after the first customer signs in.
+
+## Commands
+
 ```
-npm run sms:test -- 98XXXXXXXX mojito-plus1
+npm start                                   start the server
+npm run admin:reset -- <email> <password>   restore admin access
+npm run sms:test -- <mobile> [store id]     send one test SMS
+npm run user:check -- <email> "<password>"  explain why a customer cannot sign in
+npm test                                    run all tests (needs MongoDB)
 ```
 
-**Email:** testing mein `MAIL_TRANSPORT=console` rakho, code terminal mein dikhega. Asli email ke liye `smtp` (Gmail App Password, SES, Brevo...).
-
----
-
-## 4. Live jaane se pehle
-
-- Asli subdomain (`auth.yourbrand.com`) par deploy karo (Render / Railway / VPS). `.env` mein `NODE_ENV=production`, `DEV_TEST_CLIENT=false`, aur naye random `COOKIE_KEYS` / `OTP_SECRET`.
-- `ISSUER` badalne ke baad: `npm run store -- snippet <id>` chalao, theme snippet dobara paste karo, aur Shopify mein Discovery URL update karo.
-- Google, Facebook, Apple consoles mein naya redirect URI add karo.
-
-## Security
-
-- OTP: hashed, 10 min expiry, 5 galat try par lock, resend cooldown, ek code ek hi baar chalta hai.
-- Passwords bcrypt se save hote hain.
-- Har store ki API sirf usi store ki website se chalti hai (origin check). Login ke baad redirect sirf store ke ya Shopify ke URL par hota hai.
-- Login ka aakhri step one-time ticket se hota hai, jo 2 minute mein expire ho jata hai.
-- Kisi customer ko block karna ho to MongoDB `users` mein `status: "blocked"` kar do.
-
-## Tests
+## Project structure
 
 ```
-MONGODB_URI=mongodb://127.0.0.1:27017/idp_test npm test
+src/
+  server.js      server start-up
+  admin.js       Admin Panel routes
+  adminViews.js  Admin Panel pages
+  adminGuide.js  Admin Panel setup guide
+  settings.js    panel settings and per-store keys (encrypted)
+  stores.js      stores (MongoDB)
+  issuers.js     login addresses (per-store login domains)
+  login.js       login API, hosted login page, Google/Facebook/Apple
+  oidc.js        OpenID Connect provider used by Shopify
+  otp.js         one-time codes, SMS and email
+  users.js       account merging and social linking
+  db.js          MongoDB models
+  social.js, pages.js, dev.js, config.js
+public/
+  login.js, login.css    login drawer and page
+  admin.js, admin.css    Admin Panel
+scripts/                 admin-reset, sms-test, check-user
+test/e2e.test.js         end-to-end tests
 ```
-
-Tests mein ye sab check hota hai: hosted page, drawer, OTP, merge, password/forgot, Google, Facebook bina email, do stores ki isolation, galat site/URL block, deleted customer, refresh token aur logout.
