@@ -72,7 +72,7 @@ ${js}`);
     },
     crossOriginOpenerPolicy: false,
   });
-  app.use(['/interaction', '/login', '/social', '/dev', '/admin'], pageHeaders, (req, res, next) => {
+  app.use(['/interaction', '/login', '/social', '/dev', '/admin', '/reset-password'], pageHeaders, (req, res, next) => {
     res.set('cache-control', 'no-store');
     next();
   });

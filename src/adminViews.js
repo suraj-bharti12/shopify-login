@@ -6,6 +6,7 @@ import {
 } from './settings.js';
 import { DEFAULT_BRAND, stores } from './stores.js';
 import { issuerFor } from './issuers.js';
+import { EMAIL_TYPES, PLACEHOLDERS } from './emails.js';
 
 const V = ASSET_VERSION;
 const FONTS = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cormorant+Garamond:wght@400;500;600&display=swap';
@@ -204,6 +205,11 @@ function storeForm({ store, values, error, isNew, csrf }) {
     extraRedirectUris: store.extraRedirectUris.join('\n'), extraLogoutUris: store.extraLogoutUris.join('\n'),
     customerGroup: store.customerGroup === store.id ? '__own' : store.customerGroup,
     loginDomain: store.loginDomain || '',
+    forgotMode: store.forgotMode,
+    codeSubject: store.emails?.codeSubject || '',
+    codeHtml: store.emails?.codeHtml || '',
+    resetSubject: store.emails?.resetSubject || '',
+    resetHtml: store.emails?.resetHtml || '',
   } : { welcome: DEFAULT_BRAND.welcome, color: '#8b1d24', afterLogin: 'current' });
   const err = (f) => (error?.field === f ? `<span class="field-error">${esc(error.message)}</span>` : '');
   const bad = (f) => (error?.field === f ? ' aria-invalid="true"' : '');
@@ -251,6 +257,29 @@ function storeForm({ store, values, error, isNew, csrf }) {
           <span class="help">The address customers see on the login page and Shopify connects to, e.g. <code>login.berrylush.com</code>. Leave empty to use <code>${esc(new URL(config.issuer).host)}</code>. After saving, the store page shows the DNS record to add.</span>
           <span class="field-warn" data-domain-warn hidden>Changing this after the store is connected in Shopify: update the Discovery URL in Shopify and paste the new theme snippet. If Shopify has locked the Discovery URL (customers already signed in), deactivate that provider and connect a new one.</span>
           ${err('loginDomain')}</label>
+      </section>
+
+      <section class="card" id="emails">
+        <h2>Password reset &amp; emails</h2>
+        <label><span>Forgot password</span>
+          <select name="forgotMode">
+            <option value="code"${v.forgotMode !== 'link' ? ' selected' : ''}>Code by email, new password in the login window</option>
+            <option value="link"${v.forgotMode === 'link' ? ' selected' : ''}>Link by email, new password on a separate page</option>
+          </select>
+          <span class="help">Link: the customer gets an email with a one-time link (valid 30 minutes), sets the new password there, and a button takes them back to the store, signed in.</span></label>
+        <details class="email-design"${['codeSubject', 'codeHtml', 'resetSubject', 'resetHtml'].includes(error?.field) ? ' open' : ''}>
+          <summary>Email design <span class="muted">(optional)</span></summary>
+          <p class="muted small">By default emails use this store's logo, brand colour and support email. To use your own design, enter a subject and/or HTML below. Leave empty to keep the default.</p>
+          ${Object.entries(EMAIL_TYPES).map(([type, t]) => `<div class="email-type">
+            <div class="field-top"><h3>${esc(t.label)}</h3>${store ? `<a class="btn sm" href="/admin/stores/${esc(store.id)}/email-preview/${type}" target="_blank" rel="noopener">Preview</a>` : ''}</div>
+            <p class="muted small">${esc(t.help)}</p>
+            <label>Subject<input name="${type}Subject" value="${esc(v[`${type}Subject`] || '')}" placeholder="${esc(t.subject)}"${bad(`${type}Subject`)}>${err(`${type}Subject`)}</label>
+            <label>HTML<textarea name="${type}Html" rows="6" class="mono" placeholder="Leave empty for the branded design. Must contain ${esc(t.required)}."${bad(`${type}Html`)}>${esc(v[`${type}Html`] || '')}</textarea>${err(`${type}Html`)}</label>
+          </div>`).join('')}
+          <details class="inline"><summary>Placeholders you can use</summary>
+            <ul class="mono-list">${PLACEHOLDERS.map(([k, d]) => `<li>${esc(k)} <span class="muted">— ${esc(d)}</span></li>`).join('')}</ul></details>
+          ${store ? '<p class="muted small">Preview shows the saved version. Save first, then preview or send a test email.</p>' : ''}
+        </details>
       </section>
 
       <section class="card">
@@ -376,7 +405,7 @@ export function storePage(ctx, { store, secret, values, error, customerCount }) 
           <label>Mobile number<input name="phone" inputmode="numeric" required placeholder="98765 43210"></label>
           <button class="btn" type="submit">Send test SMS</button></form></section>
       <section class="card"><h2>Test this store's email</h2>
-        <p class="muted small">Uses ${store.own.mail ? 'this store\'s own' : 'the default'} email account. Save changes first.</p>
+        <p class="muted small">Sends a sample code email in this store's design, with ${store.own.mail ? 'this store\'s own' : 'the default'} email account. Save changes first.</p>
         <form method="post" action="/admin/stores/${esc(store.id)}/test-email" class="stack">${csrfInput(ctx.csrf)}
           <label>Email<input name="email" type="email" required value="${esc(ctx.admin.email)}"></label>
           <button class="btn" type="submit">Send test email</button></form></section>

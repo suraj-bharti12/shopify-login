@@ -10,16 +10,24 @@ import crypto from 'node:crypto';
 import { rateLimit } from 'express-rate-limit';
 import { config } from './config.js';
 import { forStore } from './settings.js';
-import { User, Otp, LoginFlow, LoginTicket } from './db.js';
+import {
+  User, Otp, LoginFlow, LoginTicket, PasswordReset,
+} from './db.js';
+import { RESET_LINK_MINUTES } from './emails.js';
 import { stores, publicConfig } from './stores.js';
-import { issueOtp, verifyOtp, OtpError, maskTarget } from './otp.js';
+import {
+  issueOtp, verifyOtp, OtpError, maskTarget, sendResetLink, explainMailError,
+} from './otp.js';
 import { startSocialLogin, finishSocialLogin } from './social.js';
 import {
   normalizeEmail, normalizePhone, looksLikeEmail, passwordProblem, cleanName,
   attachVerifiedEmail, upsertSocialUser, recordLogin,
 } from './users.js';
-import { loginPage, messagePage } from './pages.js';
+import {
+  loginPage, messagePage, resetPasswordPage, resetDonePage,
+} from './pages.js';
 import { providerFor } from './oidc.js';
+import { adminApiReady, findCustomersByPhone } from './shopifyAdmin.js';
 import {
   issuerFor, issuerForRequest, loginOrigins, DEFAULT_ORIGIN,
 } from './issuers.js';
@@ -141,6 +149,35 @@ export function loginRouter() {
     return { step: 'done', redirect: `${base}/login/complete?ticket=${encodeURIComponent(ticket.id)}` };
   }
 
+  // A mobile number we don't know yet may belong to a guest-checkout customer:
+  // ask Shopify which customer has it, so they don't have to type their email.
+  //   direct  -> sign in to that customer straight away
+  //   confirm -> send a code to that customer's email (shown masked)
+  // No match, several matches or an API problem -> the usual name + email step.
+  async function guestByPhone(flow, store, user) {
+    if (!['direct', 'confirm'].includes(store.guestLookup) || !adminApiReady(store)) return null;
+    let matches;
+    try {
+      matches = await findCustomersByPhone(store, user.phone);
+    } catch (e) {
+      console.warn(`[guest-lookup] ${store.id}: ${e.message}`);
+      return null;
+    }
+    if (matches.length !== 1) return null;
+    const [c] = matches;
+    if (!user.firstName && c.firstName) user.firstName = c.firstName;
+    if (!user.lastName && c.lastName) user.lastName = c.lastName;
+    await user.save();
+    if (store.guestLookup === 'direct') {
+      const merged = await attachVerifiedEmail(user, c.email);
+      return next(flow, store, merged, 'otp_sms_order');
+    }
+    flow.userId = user._id;
+    flow.method = 'otp_sms_order';
+    const res = await sendCode(flow, store, { purpose: 'verify_email', channel: 'email', target: c.email, userId: user._id });
+    return { ...res, notice: `We found your account from your orders. Enter the ${res.length}-digit code we sent to ${res.masked}.` };
+  }
+
   // ---------- API ----------
 
   router.get('/api/login/config', (req, res) => {
@@ -180,6 +217,10 @@ export function loginRouter() {
       if (!user) { user = new User({ group: store.customerGroup, [key]: otp.target }); flow.newCustomer = true; }
       user[`${key}Verified`] = true;
       await user.save();
+      if (key === 'phone' && !(user.email && user.emailVerified)) {
+        const found = await guestByPhone(flow, store, user);
+        if (found) return found;
+      }
       return next(flow, store, user, otp.purpose === 'login_phone' ? 'otp_sms' : 'otp_email');
     }
     if (otp.purpose === 'verify_email') {
@@ -241,6 +282,7 @@ export function loginRouter() {
     // No "account not found" error: guest-checkout customers can set their
     // first password here, and it doesn't reveal who has an account.
     const user = await User.findOne({ group: store.customerGroup, email });
+    if (store.forgotMode === 'link') return sendLink(flow, store, email, user);
     return sendCode(flow, store, { purpose: 'reset_password', channel: 'email', target: email, userId: user?._id });
   }));
 
@@ -262,6 +304,90 @@ export function loginRouter() {
     await user.save();
     return next(flow, store, user, 'password_reset');
   }));
+
+  // ---------- password reset by email link ----------
+
+  const sha = (t) => crypto.createHash('sha256').update(String(t || '')).digest('hex');
+
+  async function sendLink(flow, store, email, user) {
+    const last = await PasswordReset.findOne({ email, storeId: store.id }).sort({ createdAt: -1 });
+    const wait = last ? config.otp.resendCooldownSeconds * 1000 - (Date.now() - last.createdAt.getTime()) : 0;
+    if (wait > 0) throw new LoginError(`Please wait ${Math.ceil(wait / 1000)}s before requesting another link.`);
+    const raw = token();
+    await PasswordReset.create({
+      _id: sha(raw), storeId: store.id, email, userId: user?._id, returnTo: flow.returnTo, expiresAt: later(RESET_LINK_MINUTES * 60_000),
+    });
+    const link = `${issuerFor(store)}/reset-password?token=${encodeURIComponent(raw)}`;
+    try {
+      await sendResetLink(email, link, store, forStore(store).mail, RESET_LINK_MINUTES);
+    } catch (err) {
+      console.error(`[reset-link] ${store.id} could not send to ${maskTarget(email)}:`, explainMailError(err, forStore(store).mail));
+      await PasswordReset.deleteOne({ _id: sha(raw) });
+      throw new LoginError('We couldn’t send the email right now. Please try again in a moment.', 502);
+    }
+    await LoginFlow.deleteOne({ _id: flow._id });
+    return { step: 'sent', masked: maskTarget(email), minutes: RESET_LINK_MINUTES };
+  }
+
+  async function findReset(raw) {
+    const reset = raw && await PasswordReset.findOne({ _id: sha(raw), usedAt: { $exists: false }, expiresAt: { $gt: new Date() } });
+    const store = reset && stores.get(reset.storeId);
+    return reset && store ? { reset, store } : null;
+  }
+
+  // Where "Continue to the store" goes: back where the customer started, through
+  // Shopify's login so they arrive signed in.
+  function continueUrl(store, reset) {
+    try {
+      const u = new URL(reset.returnTo);
+      if (store.origins.includes(u.origin)) return u.toString();
+    } catch { /* fall through */ }
+    return `${store.origins[0]}/customer_authentication/login`;
+  }
+
+  const expiredLink = (res, store) => page(res, messagePage({
+    title: 'Link expired',
+    message: 'This password reset link has expired or was already used. Go back to the store and use “Forgot Password?” again.',
+    store,
+  }), 400);
+
+  router.get('/reset-password', async (req, res, nextFn) => {
+    try {
+      const found = await findReset(String(req.query.token || ''));
+      if (!found) return expiredLink(res);
+      return page(res, resetPasswordPage({ store: found.store, token: String(req.query.token), email: found.reset.email }));
+    } catch (e) { return nextFn(e); }
+  });
+
+  router.post('/reset-password', postLimit, form, async (req, res, nextFn) => {
+    try {
+      const raw = String(req.body.token || '');
+      const found = await findReset(raw);
+      if (!found) return expiredLink(res);
+      const { reset, store } = found;
+      const again = (error) => page(res, resetPasswordPage({ store, token: raw, email: reset.email, error }), 400);
+      const password = String(req.body.password || '');
+      const problem = passwordProblem(password);
+      if (problem) return again(problem);
+      if (password !== String(req.body.confirmPassword || '')) return again('The passwords don’t match. Please enter the same password twice.');
+
+      let user = (reset.userId && await User.findById(reset.userId).select('+passwordHash'))
+        || await User.findOne({ group: store.customerGroup, email: reset.email }).select('+passwordHash');
+      if (user && user.status !== 'active') return again('This account is disabled. Please contact support.');
+      if (user?.passwordHash && await user.checkPassword(password)) return again('Your new password must be different from your old password.');
+      // Use the link only once, even if the form is sent twice.
+      const claimed = await PasswordReset.findOneAndUpdate({ _id: reset._id, usedAt: { $exists: false } }, { $set: { usedAt: new Date() } });
+      if (!claimed) return expiredLink(res, store);
+      if (!user) user = new User({ group: store.customerGroup, email: reset.email });
+      await user.setPassword(password);
+      user.emailVerified = true; // they opened the link sent to this inbox
+      await user.save();
+      await PasswordReset.deleteMany({ email: reset.email, storeId: store.id, usedAt: { $exists: false } });
+      await recordLogin(user, store.id, 'password_reset');
+      setAutologin(res, user._id, 'password_reset');
+      return page(res, resetDonePage({ store, continueUrl: continueUrl(store, reset) }));
+    } catch (e) { return nextFn(e); }
+  });
 
   // ---------- browser hops ----------
 

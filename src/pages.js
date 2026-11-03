@@ -3,7 +3,7 @@
 import { config } from './config.js';
 import { stores, publicConfig } from './stores.js';
 
-export const ASSET_VERSION = '13';
+export const ASSET_VERSION = '14';
 const FONTS = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({
@@ -74,6 +74,47 @@ export function messagePage({ title, message, store }) {
 </div></div></div>`);
 }
 
+function brandHead(b) {
+  const logo = b.logoUrl
+    ? `<img class="idp-logo" src="${esc(b.logoUrl)}" alt="${esc(b.name)}">`
+    : `<div class="idp-wordmark">${esc(b.name)}</div>`;
+  return `<div class="idp-head">${b.welcome ? `<p class="idp-welcome">${esc(b.welcome)}</p>` : ''}${logo}</div><hr class="idp-rule">`;
+}
+
+const EYE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+const pwInput = (name, ph, auto = 'new-password') => `<div class="idp-pw"><input name="${name}" type="password" autocomplete="${auto}" placeholder="${ph}" aria-label="${ph}" required>
+  <button type="button" class="idp-eye" aria-label="Show password" data-eye>${EYE}</button></div>`;
+
+/** Page opened from the password reset email (store setting "Link by email"). */
+export function resetPasswordPage({ store, token, email, error }) {
+  const b = store.brand;
+  return shell('Set a new password', b, `<div class="idp idp--page" style="--idp-brand:${esc(b.color)}"><div class="idp-panel"><div class="idp-inner">
+  ${brandHead(b)}
+  <h2 class="idp-h">Set New Password</h2>
+  <p class="idp-sub">For ${esc(email)}</p>
+  <div class="idp-error" role="alert"${error ? '' : ' hidden'}>${esc(error || '')}</div>
+  <form class="idp-view" method="post" action="/reset-password">
+    <input type="hidden" name="token" value="${esc(token)}">
+    <input type="email" name="username" value="${esc(email)}" autocomplete="username" hidden>
+    ${pwInput('password', 'New password (min 8, letters + numbers)')}
+    ${pwInput('confirmPassword', 'Confirm new password')}
+    <button class="idp-btn" type="submit">Save password</button>
+  </form>
+</div></div></div>
+<script src="/static/reset.js?v=${ASSET_VERSION}"></script>`);
+}
+
+/** After a password was set from the email link. */
+export function resetDonePage({ store, continueUrl }) {
+  const b = store.brand;
+  return shell('Password updated', b, `<div class="idp idp--page" style="--idp-brand:${esc(b.color)}"><div class="idp-panel"><div class="idp-inner">
+  ${brandHead(b)}
+  <h2 class="idp-h">Password Updated</h2>
+  <p class="idp-sub">Your new password is saved. Continue to ${esc(b.name || store.name)} to finish signing in.</p>
+  <a class="idp-btn" href="${esc(continueUrl)}">Continue to ${esc(b.name || store.name)}</a>
+</div></div></div>`);
+}
+
 /** /dev test page: acts like Shopify and shows what Shopify would receive. */
 export function devPage({ users = [], claims, shopifyOk, hasRefresh, logoutUrl, error, signedOut }) {
   const row = (k, v) => `<tr><th>${esc(k)}</th><td><code>${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</code></td></tr>`;
@@ -81,9 +122,9 @@ export function devPage({ users = [], claims, shopifyOk, hasRefresh, logoutUrl, 
     <div class="dev-alert ${shopifyOk ? 'ok' : 'bad'}">${shopifyOk
     ? 'Sign-in successful. Shopify will accept this customer (email verified).'
     : 'Shopify will reject this sign-in: the email is not verified.'}</div>
-    <h2>ID token jo Shopify ko milega</h2>
+    <h2>ID token Shopify receives</h2>
     <table class="kv">${Object.entries(claims).map(([k, v]) => row(k, v)).join('')}${row('refresh_token', hasRefresh ? 'issued' : 'not issued')}</table>
-    <div class="actions"><a class="dbtn" href="/dev/start">Dobara login (session reuse test)</a><a class="dbtn primary" href="${esc(logoutUrl)}">Logout test</a></div>`
+    <div class="actions"><a class="dbtn" href="/dev/start">Sign in again (session reuse test)</a><a class="dbtn primary" href="${esc(logoutUrl)}">Sign-out test</a></div>`
     : `<div class="actions"><a class="dbtn primary" href="/dev/start">Start test login</a><a class="dbtn" href="/dev/start?prompt=login">Force login screen</a></div>`;
 
   const list = users.length ? `<div class="scroll"><table class="list">
@@ -112,7 +153,7 @@ export function devPage({ users = [], claims, shopifyOk, hasRefresh, logoutUrl, 
   </style>`;
 
   return shell('Login tester', stores.fallback().brand, `<main class="dev">
-  <span class="badge">Test mode — Shopify ki jagah</span>
+  <span class="badge">Test mode — stands in for Shopify</span>
   <h1>Login tester</h1>
   <p class="muted">This page starts a sign-in exactly as Shopify does and shows what Shopify receives.</p>
   ${error ? `<div class="dev-alert bad">${esc(error)}</div>` : ''}

@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { config } from './config.js';
 import { Otp } from './db.js';
+import { renderEmail } from './emails.js';
 
 export class OtpError extends Error {}
 
@@ -34,7 +35,7 @@ export async function issueOtp({ flowId, purpose, channel, target, userId, store
   });
 
   try {
-    if (channel === 'email') await sendEmail(target, code, purpose, store?.brand?.name, setup.mail);
+    if (channel === 'email') await sendEmail(target, code, purpose, store, setup.mail);
     else await sendSms(target, code, store?.smsTemplate, setup.sms);
   } catch (err) {
     console.error(`[otp] ${store?.id || ''} could not send ${channel} to ${maskTarget(target)}:`, channel === 'email' ? explainMailError(err, setup.mail) : err.message);
@@ -94,33 +95,33 @@ export function explainMailError(e, mail = config.mail) {
   return e.message;
 }
 
-/** Admin panel "Send test email". */
-export async function sendTestEmail(to, mail = config.mail) {
+async function deliver(mail, to, { subject, html, text }) {
   try {
-    await mailer(mail).sendMail({
-      from: mail.from,
-      to,
-      subject: 'Test email from your login server',
-      text: 'It works! Customers will receive their login codes from this address.',
-    });
+    await mailer(mail).sendMail({ from: mail.from, to, subject, html, text });
   } catch (e) {
     throw new Error(explainMailError(e, mail));
   }
 }
 
-async function sendEmail(to, code, purpose, brand = 'our store', mail = config.mail) {
-  const what = { verify_email: 'verify your email', reset_password: 'reset your password' }[purpose] || 'sign in';
-  const minutes = Math.round(config.otp.ttlSeconds / 60);
-  await mailer(mail).sendMail({
-    from: mail.from,
-    to,
-    subject: `${code} is your ${brand} code`,
-    text: `Use ${code} to ${what} at ${brand}. This code expires in ${minutes} minutes.\n\nIf you didn't request this, you can ignore this email.`,
-    html: `<div style="font-family:system-ui,Segoe UI,Roboto,sans-serif;max-width:440px;margin:auto;padding:24px;color:#111">
-      <h2 style="margin:0 0 8px">${brand}</h2><p style="margin:0 0 16px">Use this code to ${what}:</p>
-      <p style="font-size:32px;letter-spacing:8px;font-weight:700;margin:0 0 16px">${code}</p>
-      <p style="color:#6b7280;font-size:13px;margin:0">It expires in ${minutes} minutes. If you didn't request this, ignore this email.</p></div>`,
+/** Admin panel "Send test email". With a store: a sample code email in its design. */
+export async function sendTestEmail(to, mail = config.mail, store = null) {
+  if (store) {
+    const m = renderEmail('code', store, { code: '123456', purpose: 'login_email', minutes: Math.round(config.otp.ttlSeconds / 60) });
+    return deliver(mail, to, { ...m, subject: `[Test] ${m.subject}` });
+  }
+  return deliver(mail, to, {
+    subject: 'Test email from your login server',
+    text: 'It works! Customers will receive their login codes from this address.',
   });
+}
+
+async function sendEmail(to, code, purpose, store, mail = config.mail) {
+  await deliver(mail, to, renderEmail('code', store, { code, purpose, minutes: Math.round(config.otp.ttlSeconds / 60) }));
+}
+
+/** Password reset by link (store setting "Link by email"). */
+export async function sendResetLink(to, link, store, mail = config.mail, minutes = 30) {
+  await deliver(mail, to, renderEmail('reset', store, { link, minutes }));
 }
 
 // ---------- SMS ----------

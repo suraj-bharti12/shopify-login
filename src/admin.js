@@ -15,6 +15,7 @@ import { normalizeEmail, normalizePhone, passwordProblem } from './users.js';
 import * as view from './adminViews.js';
 import { guidePage } from './adminGuide.js';
 import { issuerFor } from './issuers.js';
+import { renderEmail, RESET_LINK_MINUTES } from './emails.js';
 
 const COOKIE = 'idp_admin';
 const FLASH = 'idp_flash';
@@ -205,6 +206,10 @@ export function adminRouter() {
     extraLogoutUris: lines(b.extraLogoutUris),
     afterLogin: b.afterLogin,
     loginDomain: b.loginDomain,
+    forgotMode: b.forgotMode,
+    emails: {
+      codeSubject: b.codeSubject, codeHtml: b.codeHtml, resetSubject: b.resetSubject, resetHtml: b.resetHtml,
+    },
     brand: {
       welcome: b.welcome, name: b.brandName, logoUrl: b.logoUrl, tagline: b.tagline, color: b.color, supportEmail: b.supportEmail,
     },
@@ -252,6 +257,18 @@ export function adminRouter() {
       if (!(e instanceof StoreError)) throw e;
       return renderStore(req, res, store, { values: { ...req.body, id: store.id }, error: e }, 400);
     }
+  });
+
+  // Preview of the store's emails as saved (sample code / link).
+  r.get('/admin/stores/:id/email-preview/:type', (req, res) => {
+    const store = stores.get(req.params.id);
+    if (!store || !['code', 'reset'].includes(req.params.type)) return res.status(404).type('text').send('Not found');
+    const m = renderEmail(req.params.type, store, req.params.type === 'code'
+      ? { code: '123456', purpose: 'login_email', minutes: Math.round(config.otp.ttlSeconds / 60) }
+      : { link: `${issuerFor(store)}/reset-password?token=sample`, minutes: RESET_LINK_MINUTES });
+    res.set('cache-control', 'no-store');
+    return res.type('html').send(m.html.replace('<body', `<body data-subject="${m.subject.replace(/"/g, '&quot;')}"`)
+      .replace(/(<body[^>]*>)/, `$1<div style="font:13px Arial,sans-serif;background:#111;color:#fff;padding:10px 16px">Preview · Subject: <b>${m.subject.replace(/</g, '&lt;')}</b></div>`));
   });
 
   // Is the store's login domain pointing at this server (DNS + HTTPS ready)?
@@ -309,7 +326,7 @@ export function adminRouter() {
     } else {
       const { mail } = forStore(store);
       try {
-        await sendTestEmail(email, mail);
+        await sendTestEmail(email, mail, store);
         flash(res, 'ok', mail.transport === 'console'
           ? 'Email is in test mode (console): it was printed in the server log, not sent.'
           : `Test email sent to ${email} from ${mail.from}. Check the inbox (and Spam).`);

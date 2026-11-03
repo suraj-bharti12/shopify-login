@@ -135,7 +135,21 @@ const LoginTicketSchema = new Schema({
 });
 LoginTicketSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+// One-time password reset links (store setting "Link by email").
+const PasswordResetSchema = new Schema({
+  _id: { type: String, required: true }, // sha256 of the token in the link
+  storeId: { type: String, required: true },
+  email: { type: String, required: true },
+  userId: { type: ObjectId, ref: 'User' },
+  returnTo: String,
+  usedAt: Date,
+  expiresAt: { type: Date, required: true },
+}, { timestamps: true });
+PasswordResetSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+PasswordResetSchema.index({ email: 1, createdAt: -1 });
+
 export const User = model('User', UserSchema);
+export const PasswordReset = model('PasswordReset', PasswordResetSchema);
 export const Otp = model('Otp', OtpSchema);
 export const LoginFlow = model('LoginFlow', LoginFlowSchema);
 export const LoginTicket = model('LoginTicket', LoginTicketSchema);
@@ -159,6 +173,12 @@ const StoreSchema = new Schema({
   smsTemplate: String,
   customerGroup: String,
   loginDomain: String, // e.g. login.berrylush.com (empty = the server's main address)
+  forgotMode: { type: String, default: 'code' }, // 'code' (in the login window) or 'link' (by email)
+  emails: { codeSubject: String, codeHtml: String, resetSubject: String, resetHtml: String },
+  // Find guest-checkout customers by mobile number (off | confirm | direct),
+  // using a Dev Dashboard app's credentials (secret encrypted, see settings.js).
+  guestLookup: String,
+  adminApi: { clientId: String, clientSecret: String },
   // Which parts use this store's own keys instead of Settings, and those keys
   // (secrets encrypted, see settings.js). Keys look like "sms:gupshup:userId".
   own: { sms: Boolean, mail: Boolean, social: Boolean },

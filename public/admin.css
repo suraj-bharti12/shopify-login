@@ -227,3 +227,9 @@ html{scroll-behavior:smooth;scroll-padding-top:16px}
   .guide-table td:nth-child(3)::before{content:"Where: ";font-weight:600;color:var(--ink)}
   .card .scroll .table td:first-child{padding-left:0}
 }
+
+.email-design{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.email-design>summary{cursor:pointer;font-weight:600;font-size:14px}
+.email-type{margin-top:14px;padding:14px;border-radius:10px;background:var(--bg)}
+.email-type .field-top{display:flex;justify-content:space-between;align-items:center}
+textarea.mono{font-family:var(--mono);font-size:12px}

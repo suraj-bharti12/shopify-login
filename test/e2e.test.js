@@ -47,13 +47,16 @@ let adminSetupCode = null;
 const origLog = console.log;
 console.log = (...a) => {
   const s = a.join(' ');
+  const link = s.match(/To: (\S+)[\s\S]*?(https?:\/\/\S+\/reset-password\?token=\S+)/);
   const m = s.match(/To: (\S+)[\s\S]*?(\d{6})/);
-  if (s.includes(':console]') && m) sent.push({ to: m[1], code: m[2], text: s });
+  if (s.includes(':console]') && link) sent.push({ to: link[1], link: link[2], text: s });
+  else if (s.includes(':console]') && m) sent.push({ to: m[1], code: m[2], text: s });
   else if (s.startsWith('Setup code: ')) adminSetupCode = s.slice(12).trim();
   else if (!s.includes('ADMIN SETUP') && !s.startsWith('Open http') && !/^=+$/.test(s.trim())) origLog(...a);
 };
 const lastSent = (to) => [...sent].reverse().find((x) => x.to === to);
 const lastCode = (to) => lastSent(to)?.code;
+const lastLink = (to) => lastSent(to)?.link;
 
 // Fake Google + Facebook
 const { privateKey: gKey, publicKey: gPub } = await generateKeyPair('RS256', { extractable: true });
@@ -931,4 +934,100 @@ test('forgot password: the new password must differ from the old one', async () 
   assert.equal(other.json.step, 'done');
   // and later go back to the earlier one (it is no longer the current password)
   assert.equal((await resetTo('newpass123')).res.json.step, 'done');
+});
+
+// ---------- forgot password by email link, email design ----------
+
+test('forgot password by link: email link -> branded page -> new password -> back to the store signed in', async () => {
+  const b = await adminBrowser();
+  const page = await b.req('/admin/stores/test-store');
+  assert.match(page.text, /Link by email, new password on a separate page/);
+  const saved = await b.req('/admin/stores/test-store', {
+    method: 'POST',
+    form: {
+      _csrf: csrfOf(page.text), name: 'Test Store', shopDomain: 'test-store.myshopify.com', shopId: '111', domains: 'store.example',
+      brandName: 'Test Brand', tagline: 'Hello', color: '#123456', smsTemplate: 'TEST {otp} CODE', forgotMode: 'link',
+    },
+  });
+  assert.equal(saved.status, 303, saved.text.slice(0, 300));
+  const cfg = await (await fetch(`${ISSUER}/api/login/config?store=test-store`)).json();
+  assert.equal(cfg.forgotMode, 'link');
+
+  const email = 'asha@example.com';
+  const f = await api('/api/login/forgot', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email });
+  assert.equal(f.json.step, 'sent', JSON.stringify(f.json));
+  assert.match(f.json.masked, /as\*+@example\.com/);
+  const link = lastLink(email);
+  assert.ok(link?.startsWith(`${ISSUER}/reset-password?token=`), link);
+  assert.match(lastSent(email).text, /Subject: Reset your Test Brand password/);
+
+  const br = browser();
+  const form = await br.req(link);
+  assert.equal(form.status, 200);
+  assert.match(form.text, /Set New Password/);
+  assert.match(form.text, /name="confirmPassword"/);
+  const tokenValue = new URL(link).searchParams.get('token');
+  const mismatch = await br.req('/reset-password', { method: 'POST', form: { token: tokenValue, password: 'linkpass123', confirmPassword: 'linkpass124' } });
+  assert.equal(mismatch.status, 400);
+  assert.match(mismatch.text, /passwords don.t match/);
+  const current = await br.req('/reset-password', { method: 'POST', form: { token: tokenValue, password: 'newpass123', confirmPassword: 'newpass123' } });
+  assert.match(current.text, /must be different from your old password/);
+  const done = await br.req('/reset-password', { method: 'POST', form: { token: tokenValue, password: 'linkpass123', confirmPassword: 'linkpass123' } });
+  assert.equal(done.status, 200);
+  assert.match(done.text, /Password Updated/);
+  const cont = done.text.match(/class="idp-btn" href="([^"]+)"/)[1].replace(/&amp;/g, '&');
+  assert.equal(cont, SHOPIFY_LOGIN); // back where the customer started
+  // Shopify's login -> /authorize finishes straight away (signed in)
+  const auth = await br.go(authorizeUrl());
+  assert.ok(auth.final, auth.text?.slice(0, 200));
+  const { claims } = await exchange(auth.final);
+  assert.equal(claims.email, email);
+  // the link works only once, and the new password works
+  assert.match((await br.req(link)).text, /Link expired/);
+  const ok = await api('/api/login/password', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email, password: 'linkpass123' });
+  assert.equal(ok.json.step, 'done');
+});
+
+test('forgot password by link: a guest-checkout email gets its first password the same way', async () => {
+  const email = 'guest.link@example.com';
+  const f = await api('/api/login/forgot', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email });
+  assert.equal(f.json.step, 'sent');
+  const tokenValue = new URL(lastLink(email)).searchParams.get('token');
+  const done = await browser().req('/reset-password', { method: 'POST', form: { token: tokenValue, password: 'guestlink1', confirmPassword: 'guestlink1' } });
+  assert.match(done.text, /Password Updated/);
+  const user = await mongoose.connection.db.collection('users').findOne({ email, group: 'default' });
+  assert.equal(user.emailVerified, true);
+  assert.equal((await browser().req('/reset-password?token=nope')).status, 400);
+});
+
+test('email design: branded by default, custom subject and HTML per store, preview in the panel', async () => {
+  const b = await adminBrowser();
+  const page = await b.req('/admin/stores/test-store');
+  const base = {
+    _csrf: csrfOf(page.text), name: 'Test Store', shopDomain: 'test-store.myshopify.com', shopId: '111', domains: 'store.example',
+    brandName: 'Test Brand', tagline: 'Hello', color: '#123456', smsTemplate: 'TEST {otp} CODE', forgotMode: 'code',
+  };
+  const preview = await b.req('/admin/stores/test-store/email-preview/code');
+  assert.equal(preview.status, 200);
+  assert.match(preview.text, /Test Brand/);
+  assert.match(preview.text, /#123456/);
+  assert.match(preview.text, /123456/);
+
+  const bad = await b.req('/admin/stores/test-store', { method: 'POST', form: { ...base, codeHtml: '<p>no code here</p>' } });
+  assert.equal(bad.status, 400);
+  assert.match(bad.text, /must contain \{\{code\}\}/);
+
+  const saved = await b.req('/admin/stores/test-store', {
+    method: 'POST', form: { ...base, codeSubject: 'Your {{store_name}} code: {{code}}', codeHtml: '<h1 style="color:{{brand_color}}">{{store_name}}</h1><p>Code {{code}}</p>' },
+  });
+  assert.equal(saved.status, 303, saved.text.slice(0, 300));
+  const s = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, identifier: 'design@example.com' });
+  assert.equal(s.json.step, 'otp');
+  assert.match(lastSent('design@example.com').text, /Subject: Your Test Brand code: \d{6}/);
+  const p2 = await b.req('/admin/stores/test-store/email-preview/code');
+  assert.match(p2.text, /<h1 style="color:#123456">Test Brand<\/h1><p>Code 123456<\/p>/);
+  // the other store keeps the default design
+  const o = await api('/api/login/otp/send', { store: 'other-store', returnTo: 'https://other.example/customer_authentication/login', identifier: 'design2@example.com' }, OTHER_ORIGIN);
+  assert.equal(o.json.step, 'otp');
+  assert.match(lastSent('design2@example.com').text, /Subject: \d{6} is your Other code/);
 });

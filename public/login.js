@@ -24,11 +24,13 @@
     password: 'Login Using Email & Password',
     forgot: 'Forgot Password',
     reset: 'Set New Password',
+    sent: 'Check Your Email',
     loading: 'Signing you in'
   };
   var SUBS = {
     forgot: 'We’ll email you a code to set a new password. Works even if you have never made one.'
   };
+  var FORGOT_LINK = 'We’ll email you a link to set a new password. Works even if you have never made one.';
   var NAMES = { google: 'Google', facebook: 'Facebook', apple: 'Apple' };
   var ICONS = {
     google: '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.2-.1-2.3-.4-3.5z"/></svg>',
@@ -90,6 +92,11 @@
     '<button class="idp-btn" type="submit">Send request</button>',
     '<p class="idp-back"><a href="#" data-go="password">‹ Back</a></p>',
     '</form>',
+
+    '<div class="idp-view" data-view="sent" hidden>',
+    '<button class="idp-btn" type="button" data-go="password">Back to login</button>',
+    '<p class="idp-muted">Didn’t get it? Check your spam folder or <a href="#" data-go="forgot">send it again</a>.</p>',
+    '</div>',
 
     '<form class="idp-view" data-view="reset" hidden novalidate>',
     pw('password', 'new-password', 'New password (min 8, letters + numbers)'),
@@ -157,6 +164,7 @@
     else { logo.hidden = true; name.hidden = false; name.textContent = b.name || ''; }
     q('[data-b="cc"]').textContent = '+' + (cfg.countryCode || '91');
     form('otp').code.maxLength = cfg.otpLength || 6;
+    if (cfg.forgotMode === 'link') SUBS.forgot = FORGOT_LINK;
     renderSocial();
   }
 
@@ -207,16 +215,18 @@
     if (res.flowId) state.flowId = res.flowId;
     if (res.step === 'otp') {
       form('otp').code.value = '';
-      show('otp', 'Enter the ' + (res.length || 6) + '-digit code sent to ' + res.masked);
+      show('otp', res.notice || ('Enter the ' + (res.length || 6) + '-digit code sent to ' + res.masked));
       startCountdown();
     } else if (res.step === 'profile') {
       var p = form('profile');
       q('[data-need-name]').hidden = !res.needName;
       p.email.hidden = !res.needEmail;
       if (res.email) p.email.value = res.email;
-      show('profile', res.needEmail ? 'Use the same email you used for your orders, so they show up in your account. We’ll send a code to verify it.' : 'Tell us your name to finish.');
+      show('profile', res.needEmail ? 'Ordered before as a guest? Enter the same email you used at checkout to see your orders. We’ll send a code to verify it.' : 'Tell us your name to finish.');
     } else if (res.step === 'reset') {
       show('reset');
+    } else if (res.step === 'sent') {
+      show('sent', 'We’ve sent a link to ' + res.masked + '. Open it to set a new password. The link works once and expires in ' + (res.minutes || 30) + ' minutes.');
     } else if (res.step === 'done') {
       show('loading');
       window.location.href = res.redirect;

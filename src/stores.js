@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { db, Store, Setting } from './db.js';
 import { forStore, toDb, fromDb } from './settings.js';
+import { EMAIL_TYPES } from './emails.js';
 
 const DIR = config.storesDir
   ? path.resolve(config.storesDir)
@@ -47,6 +48,17 @@ export function normalize(raw) {
     if (loginDomain === new URL(config.issuer).host) throw new StoreError('loginDomain', 'That is already the server\'s main address. Leave the field empty to use it.');
     if (loginDomain.endsWith('.myshopify.com')) throw new StoreError('loginDomain', 'Use a domain of your own (e.g. login.yourbrand.com), not myshopify.com.');
   }
+  // Customer emails: optional own subject / HTML per email type.
+  const emails = {};
+  for (const [type, t] of Object.entries(EMAIL_TYPES)) {
+    const subject = String(raw.emails?.[`${type}Subject`] || '').trim();
+    const html = String(raw.emails?.[`${type}Html`] || '').trim();
+    if (subject.length > 200) throw new StoreError(`${type}Subject`, `${t.label}: the subject is too long (max 200 characters).`);
+    if (html.length > 100_000) throw new StoreError(`${type}Html`, `${t.label}: the HTML is too long (max 100,000 characters).`);
+    if (html && !html.includes(t.required)) throw new StoreError(`${type}Html`, `${t.label}: the HTML must contain ${t.required}.`);
+    emails[`${type}Subject`] = subject;
+    emails[`${type}Html`] = html;
+  }
   // Customer group: stores with the same group share customers.
   const customerGroup = String(raw.customerGroup || 'default').trim().toLowerCase();
   if (!/^[a-z0-9-]{2,40}$/.test(customerGroup)) throw new StoreError('customerGroup', 'Customer group: 2-40 lowercase letters, numbers or dashes.');
@@ -81,6 +93,13 @@ export function normalize(raw) {
     smsTemplate: String(raw.smsTemplate || '').trim() || undefined, // empty = default from Settings
     customerGroup,
     loginDomain,
+    forgotMode: raw.forgotMode === 'link' ? 'link' : 'code',
+    emails,
+    guestLookup: ['confirm', 'direct'].includes(raw.guestLookup) ? raw.guestLookup : 'off',
+    adminApi: {
+      clientId: String(raw.adminApi?.clientId || '').trim(),
+      clientSecret: String(raw.adminApi?.clientId || '').trim() ? String(raw.adminApi?.clientSecret || '') : '',
+    },
     // Own SMS / email / social keys instead of the Settings ones (settings.forStore)
     own: { sms: Boolean(raw.own?.sms), mail: Boolean(raw.own?.mail), social: Boolean(raw.own?.social) },
     creds: fromDb(raw.creds),
@@ -116,6 +135,10 @@ function toDoc(s) {
     smsTemplate: s.smsTemplate || '',
     customerGroup: s.customerGroup,
     loginDomain: s.loginDomain || '',
+    forgotMode: s.forgotMode,
+    emails: s.emails,
+    guestLookup: s.guestLookup,
+    adminApi: s.adminApi,
     own: s.own,
     creds: toDb(s.creds),
   };
@@ -164,6 +187,7 @@ export function publicConfig(store) {
     otpLength: config.otp.length,
     resendSeconds: config.otp.resendCooldownSeconds,
     afterLogin: store.afterLogin,
+    forgotMode: store.forgotMode,
   };
 }
 
