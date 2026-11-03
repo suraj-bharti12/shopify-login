@@ -40,7 +40,7 @@ export async function initAdmin() {
 export function adminRouter() {
   const r = express.Router();
   const form = express.urlencoded({ extended: false, limit: '100kb' });
-  const loginLimit = rateLimit({ windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false });
+  const loginLimit = rateLimit({ windowMs: 15 * 60_000, limit: config.rateLimits.adminLogin, standardHeaders: 'draft-7', legacyHeaders: false });
   const cookieOpts = (maxAge) => ({
     httpOnly: true, signed: true, sameSite: 'strict', secure: config.isProd, path: '/admin', maxAge,
   });
@@ -264,9 +264,11 @@ export function adminRouter() {
   r.get('/admin/stores/:id/email-preview/:type', (req, res) => {
     const store = stores.get(req.params.id);
     if (!store || !['code', 'reset'].includes(req.params.type)) return res.status(404).type('text').send('Not found');
-    const m = renderEmail(req.params.type, store, req.params.type === 'code'
+    const sample = req.params.type === 'code'
       ? { code: '123456', purpose: 'login_email', minutes: Math.round(config.otp.ttlSeconds / 60) }
-      : { link: `${issuerFor(store)}/reset-password?token=sample`, minutes: RESET_LINK_MINUTES });
+      : { link: `${issuerFor(store)}/reset-password?token=sample`, minutes: RESET_LINK_MINUTES };
+    Object.assign(sample, { email: 'customer@example.com', firstName: 'Suraj', lastName: 'Mojito' });
+    const m = renderEmail(req.params.type, store, sample);
     res.set('cache-control', 'no-store');
     return res.type('html').send(m.html.replace('<body', `<body data-subject="${m.subject.replace(/"/g, '&quot;')}"`)
       .replace(/(<body[^>]*>)/, `$1<div style="font:13px Arial,sans-serif;background:#111;color:#fff;padding:10px 16px">Preview · Subject: <b>${m.subject.replace(/</g, '&lt;')}</b></div>`));

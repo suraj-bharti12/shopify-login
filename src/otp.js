@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { config } from './config.js';
-import { Otp } from './db.js';
+import { Otp, User } from './db.js';
 import { renderEmail } from './emails.js';
 
 export class OtpError extends Error {}
@@ -35,7 +35,10 @@ export async function issueOtp({ flowId, purpose, channel, target, userId, store
   });
 
   try {
-    if (channel === 'email') await sendEmail(target, code, purpose, store, setup.mail);
+    if (channel === 'email') {
+      const who = userId ? await User.findById(userId).select('firstName lastName').lean().catch(() => null) : null;
+      await sendEmail(target, code, purpose, store, setup.mail, who);
+    }
     else await sendSms(target, code, store?.smsTemplate, setup.sms);
   } catch (err) {
     console.error(`[otp] ${store?.id || ''} could not send ${channel} to ${maskTarget(target)}:`, channel === 'email' ? explainMailError(err, setup.mail) : err.message);
@@ -106,7 +109,9 @@ async function deliver(mail, to, { subject, html, text }) {
 /** Admin panel "Send test email". With a store: a sample code email in its design. */
 export async function sendTestEmail(to, mail = config.mail, store = null) {
   if (store) {
-    const m = renderEmail('code', store, { code: '123456', purpose: 'login_email', minutes: Math.round(config.otp.ttlSeconds / 60) });
+    const m = renderEmail('code', store, {
+      code: '123456', purpose: 'login_email', minutes: Math.round(config.otp.ttlSeconds / 60), email: to, firstName: 'Test', lastName: 'Customer',
+    });
     return deliver(mail, to, { ...m, subject: `[Test] ${m.subject}` });
   }
   return deliver(mail, to, {
@@ -115,13 +120,17 @@ export async function sendTestEmail(to, mail = config.mail, store = null) {
   });
 }
 
-async function sendEmail(to, code, purpose, store, mail = config.mail) {
-  await deliver(mail, to, renderEmail('code', store, { code, purpose, minutes: Math.round(config.otp.ttlSeconds / 60) }));
+async function sendEmail(to, code, purpose, store, mail = config.mail, who = null) {
+  await deliver(mail, to, renderEmail('code', store, {
+    code, purpose, minutes: Math.round(config.otp.ttlSeconds / 60), email: to, firstName: who?.firstName, lastName: who?.lastName,
+  }));
 }
 
 /** Password reset by link (store setting "Link by email"). */
-export async function sendResetLink(to, link, store, mail = config.mail, minutes = 30) {
-  await deliver(mail, to, renderEmail('reset', store, { link, minutes }));
+export async function sendResetLink(to, link, store, mail = config.mail, minutes = 30, who = null) {
+  await deliver(mail, to, renderEmail('reset', store, {
+    link, minutes, email: to, firstName: who?.firstName, lastName: who?.lastName,
+  }));
 }
 
 // ---------- SMS ----------

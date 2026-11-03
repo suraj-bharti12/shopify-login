@@ -321,7 +321,7 @@ export function loginRouter() {
     });
     const link = `${issuerFor(store)}/reset-password?token=${encodeURIComponent(raw)}`;
     try {
-      await sendResetLink(email, link, store, forStore(store).mail, RESET_LINK_MINUTES);
+      await sendResetLink(email, link, store, forStore(store).mail, RESET_LINK_MINUTES, user);
     } catch (err) {
       console.error(`[reset-link] ${store.id} could not send to ${maskTarget(email)}:`, explainMailError(err, forStore(store).mail));
       await PasswordReset.deleteOne({ _id: sha(raw) });

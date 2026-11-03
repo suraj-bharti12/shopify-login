@@ -37,6 +37,7 @@ Object.assign(process.env, {
   OTP_RESEND_COOLDOWN_SECONDS: '0',
   LOGIN_SEND_LIMIT: '1000',
   LOGIN_POST_LIMIT: '1000',
+  ADMIN_LOGIN_LIMIT: '1000',
   GOOGLE_CLIENT_ID: 'g-client',
   GOOGLE_CLIENT_SECRET: 'g-secret',
   FACEBOOK_APP_ID: 'fb-app',
@@ -1062,4 +1063,45 @@ test('forgot password by link: "return to the page" option goes back to the page
   assert.match(auth.text, /id="idp-login"/);
   const ok = await api('/api/login/password', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email, password: 'pagemode123' });
   assert.equal(ok.json.step, 'done');
+});
+
+test('email design: customer name, email and link placeholders in a custom reset email', async () => {
+  const { renderEmail } = await import('../src/emails.js');
+  const store = { ...stores.get('test-store'), emails: { resetHtml: '<p>Hi {{first_name}}, reset {{email}}: <a href="{{link}}">Reset Password</a></p>' } };
+  const known = renderEmail('reset', store, { link: 'https://x.example/reset-password?token=a&b=1', email: 'asha@example.com', firstName: 'Asha', lastName: 'K' });
+  assert.equal(known.html, '<p>Hi Asha, reset asha@example.com: <a href="https://x.example/reset-password?token=a&amp;b=1">Reset Password</a></p>');
+  const unknown = renderEmail('reset', store, { link: 'https://x.example/r', email: 'new@example.com' });
+  assert.match(unknown.html, /Hi there,/);
+
+  const b = await adminBrowser();
+  const page = await b.req('/admin/stores/test-store');
+  const bad = await b.req('/admin/stores/test-store', {
+    method: 'POST',
+    form: {
+      _csrf: csrfOf(page.text), name: 'Test Store', shopDomain: 'test-store.myshopify.com', shopId: '111', domains: 'store.example',
+      brandName: 'Test Brand', color: '#123456', forgotMode: 'link', resetHtml: '<a href="https://login.example/reset?ticket=abc">Reset</a>',
+    },
+  });
+  assert.equal(bad.status, 400);
+  assert.match(bad.text, /Replace the reset URL in your HTML with \{\{link\}\}/);
+});
+
+test('email design: starter templates are offered in the panel and can be saved as they are', async () => {
+  const { STARTER_HTML } = await import('../src/emails.js');
+  const b = await adminBrowser();
+  const page = await b.req('/admin/stores/test-store');
+  assert.match(page.text, /data-starter="reset"/);
+  assert.match(page.text, /<template id="starter-reset">/);
+  const saved = await b.req('/admin/stores/test-store', {
+    method: 'POST',
+    form: {
+      _csrf: csrfOf(page.text), name: 'Test Store', shopDomain: 'test-store.myshopify.com', shopId: '111', domains: 'store.example',
+      brandName: 'Test Brand', color: '#123456', smsTemplate: 'TEST {otp} CODE', forgotMode: 'link', resetHtml: STARTER_HTML.reset, codeHtml: STARTER_HTML.code,
+    },
+  });
+  assert.equal(saved.status, 303, saved.text.slice(0, 300));
+  const preview = await b.req('/admin/stores/test-store/email-preview/reset');
+  assert.match(preview.text, /Hi Suraj Mojito,/);
+  assert.match(preview.text, /background:#123456/);
+  assert.match(preview.text, /href="http:\/\/localhost:3999\/reset-password\?token=sample"/);
 });

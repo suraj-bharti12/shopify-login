@@ -6,7 +6,7 @@ import {
 } from './settings.js';
 import { DEFAULT_BRAND, stores } from './stores.js';
 import { issuerFor } from './issuers.js';
-import { EMAIL_TYPES, PLACEHOLDERS } from './emails.js';
+import { EMAIL_TYPES, PLACEHOLDERS, STARTER_HTML } from './emails.js';
 
 const V = ASSET_VERSION;
 const FONTS = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cormorant+Garamond:wght@400;500;600&display=swap';
@@ -281,6 +281,9 @@ function storeForm({ store, values, error, isNew, csrf }) {
             <div class="field-top"><h3>${esc(t.label)}</h3>${store ? `<a class="btn sm" href="/admin/stores/${esc(store.id)}/email-preview/${type}" target="_blank" rel="noopener">Preview</a>` : ''}</div>
             <p class="muted small">${esc(t.help)}</p>
             <label>Subject<input name="${type}Subject" value="${esc(v[`${type}Subject`] || '')}" placeholder="${esc(t.subject)}"${bad(`${type}Subject`)}>${err(`${type}Subject`)}</label>
+            <div class="starter-row"><button type="button" class="btn sm" data-starter="${type}">Insert starter template</button>
+              <span class="muted small">Fills the HTML box with a ready email you can edit. Then save and preview.</span></div>
+            <template id="starter-${type}">${esc(STARTER_HTML[type])}</template>
             <label>HTML<textarea name="${type}Html" rows="6" class="mono" placeholder="Leave empty for the branded design. Must contain ${esc(t.required)}."${bad(`${type}Html`)}>${esc(v[`${type}Html`] || '')}</textarea>${err(`${type}Html`)}</label>
           </div>`).join('')}
           <details class="inline"><summary>Placeholders you can use</summary>

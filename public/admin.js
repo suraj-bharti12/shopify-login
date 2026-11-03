@@ -63,6 +63,21 @@
     });
   }
 
+  // Store form: fill an email HTML box with the starter template
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-starter]');
+    if (!b) return;
+    var type = b.getAttribute('data-starter');
+    var box = document.querySelector('textarea[name="' + type + 'Html"]');
+    var tpl = document.getElementById('starter-' + type);
+    if (!box || !tpl) return;
+    if (box.value.trim() && !window.confirm('Replace the HTML in this box with the starter template?')) return;
+    var t = document.createElement('textarea'); t.innerHTML = tpl.innerHTML; // decode
+    box.value = t.value;
+    box.rows = 16;
+    box.focus();
+  });
+
   // Store form: "After the new password is saved" only matters for link resets
   var forgotSel = document.querySelector('select[name="forgotMode"]');
   var afterReset = document.querySelector('[data-after-reset]');

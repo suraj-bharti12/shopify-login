@@ -55,7 +55,11 @@ export function normalize(raw) {
     const html = String(raw.emails?.[`${type}Html`] || '').trim();
     if (subject.length > 200) throw new StoreError(`${type}Subject`, `${t.label}: the subject is too long (max 200 characters).`);
     if (html.length > 100_000) throw new StoreError(`${type}Html`, `${t.label}: the HTML is too long (max 100,000 characters).`);
-    if (html && !html.includes(t.required)) throw new StoreError(`${type}Html`, `${t.label}: the HTML must contain ${t.required}.`);
+    if (html && !html.includes(t.required)) {
+      throw new StoreError(`${type}Html`, type === 'reset'
+        ? `${t.label}: the HTML must contain {{link}}. Replace the reset URL in your HTML with {{link}}, e.g. <a href="{{link}}">Reset Password</a>.`
+        : `${t.label}: the HTML must contain {{code}} where the code should appear.`);
+    }
     emails[`${type}Subject`] = subject;
     emails[`${type}Html`] = html;
   }

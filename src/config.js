@@ -87,6 +87,7 @@ export const config = {
   rateLimits: {
     send: num(process.env.LOGIN_SEND_LIMIT, 30),
     post: num(process.env.LOGIN_POST_LIMIT, 60),
+    adminLogin: num(process.env.ADMIN_LOGIN_LIMIT, 20), // admin panel sign-ins per 15 minutes
   },
 
   // /dev test page that acts like Shopify. Keep false on the live server.
