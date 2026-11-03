@@ -66,8 +66,10 @@ export function loginRouter() {
   const router = express.Router();
   const json = express.json({ limit: '10kb' });
   const form = express.urlencoded({ extended: false, limit: '20kb' });
-  const sendLimit = rateLimit({ windowMs: 10 * 60_000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false });
-  const postLimit = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-7', legacyHeaders: false });
+  // Per IP: codes / links sent per 10 minutes, and other login requests per minute.
+  const tooMany = (req, res) => res.status(429).json({ error: 'Too many attempts. Please wait a few minutes and try again.' });
+  const sendLimit = rateLimit({ windowMs: 10 * 60_000, limit: config.rateLimits.send, standardHeaders: 'draft-7', legacyHeaders: false, handler: tooMany });
+  const postLimit = rateLimit({ windowMs: 60_000, limit: config.rateLimits.post, standardHeaders: 'draft-7', legacyHeaders: false, handler: tooMany });
   const page = (res, html, status = 200) => res.status(status).type('html').send(html);
 
   // ---------- CORS for the store drawer ----------
@@ -335,14 +337,24 @@ export function loginRouter() {
     return reset && store ? { reset, store } : null;
   }
 
-  // Where "Continue to the store" goes: back where the customer started, through
-  // Shopify's login so they arrive signed in.
+  // Where the button after a link reset goes (store setting "afterReset"):
+  //   signin -> through Shopify's login, so they arrive signed in on the page
+  //             they started from
+  //   page   -> straight to that page with the login drawer open, to sign in
+  //             with the new password
   function continueUrl(store, reset) {
-    try {
-      const u = new URL(reset.returnTo);
-      if (store.origins.includes(u.origin)) return u.toString();
-    } catch { /* fall through */ }
-    return `${store.origins[0]}/customer_authentication/login`;
+    let u = null;
+    try { u = new URL(reset.returnTo); } catch { /* ignore */ }
+    const fromStore = u && store.origins.includes(u.origin);
+    if (store.afterReset !== 'page') return fromStore ? u.toString() : `${store.origins[0]}/customer_authentication/login`;
+    let pagePath = '/';
+    if (fromStore && u.pathname === '/customer_authentication/login') {
+      const back = u.searchParams.get('return_to') || '/';
+      if (back.startsWith('/') && !back.startsWith('//')) pagePath = back;
+    } else if (fromStore) {
+      pagePath = u.pathname + u.search;
+    }
+    return `${fromStore ? u.origin : store.origins[0]}${pagePath}#idp-login`;
   }
 
   const expiredLink = (res, store) => page(res, messagePage({
@@ -383,9 +395,12 @@ export function loginRouter() {
       user.emailVerified = true; // they opened the link sent to this inbox
       await user.save();
       await PasswordReset.deleteMany({ email: reset.email, storeId: store.id, usedAt: { $exists: false } });
-      await recordLogin(user, store.id, 'password_reset');
-      setAutologin(res, user._id, 'password_reset');
-      return page(res, resetDonePage({ store, continueUrl: continueUrl(store, reset) }));
+      const signIn = store.afterReset !== 'page';
+      if (signIn) {
+        await recordLogin(user, store.id, 'password_reset');
+        setAutologin(res, user._id, 'password_reset');
+      }
+      return page(res, resetDonePage({ store, continueUrl: continueUrl(store, reset), signedIn: signIn }));
     } catch (e) { return nextFn(e); }
   });
 

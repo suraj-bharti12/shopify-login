@@ -336,6 +336,12 @@
       open(a.href);
     }, true);
     window.IdpLogin = { open: open, close: close };
+    // Back from a password reset link: open the drawer on email + password.
+    if (location.hash === '#idp-login') {
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
+      open();
+      show('password', 'Your new password is saved. Sign in with your email and new password.');
+    }
   } else {
     root.hidden = false;
     loadConfig().catch(function () {});

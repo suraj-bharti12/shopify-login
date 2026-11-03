@@ -83,6 +83,12 @@ export const config = {
     privateKey: (process.env.APPLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
   },
 
+  // Per-IP limits on the login API (codes sent per 10 minutes, other requests per minute).
+  rateLimits: {
+    send: num(process.env.LOGIN_SEND_LIMIT, 30),
+    post: num(process.env.LOGIN_POST_LIMIT, 60),
+  },
+
   // /dev test page that acts like Shopify. Keep false on the live server.
   devTestClient: bool(process.env.DEV_TEST_CLIENT),
 

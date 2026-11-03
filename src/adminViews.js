@@ -206,6 +206,7 @@ function storeForm({ store, values, error, isNew, csrf }) {
     customerGroup: store.customerGroup === store.id ? '__own' : store.customerGroup,
     loginDomain: store.loginDomain || '',
     forgotMode: store.forgotMode,
+    afterReset: store.afterReset,
     codeSubject: store.emails?.codeSubject || '',
     codeHtml: store.emails?.codeHtml || '',
     resetSubject: store.emails?.resetSubject || '',
@@ -266,7 +267,13 @@ function storeForm({ store, values, error, isNew, csrf }) {
             <option value="code"${v.forgotMode !== 'link' ? ' selected' : ''}>Code by email, new password in the login window</option>
             <option value="link"${v.forgotMode === 'link' ? ' selected' : ''}>Link by email, new password on a separate page</option>
           </select>
-          <span class="help">Link: the customer gets an email with a one-time link (valid 30 minutes), sets the new password there, and a button takes them back to the store, signed in.</span></label>
+          <span class="help">Link: the customer gets an email with a one-time link (valid 30 minutes) and sets the new password on a separate page.</span></label>
+        <label data-after-reset><span>After the new password is saved <span class="muted">(link only)</span></span>
+          <select name="afterReset">
+            <option value="signin"${v.afterReset !== 'page' ? ' selected' : ''}>Sign them in and return to the page they started from</option>
+            <option value="page"${v.afterReset === 'page' ? ' selected' : ''}>Return to the page they started from, with the login drawer open</option>
+          </select>
+          <span class="help">The second option does not sign them in: they enter their email and new password in the drawer.</span></label>
         <details class="email-design"${['codeSubject', 'codeHtml', 'resetSubject', 'resetHtml'].includes(error?.field) ? ' open' : ''}>
           <summary>Email design <span class="muted">(optional)</span></summary>
           <p class="muted small">By default emails use this store's logo, brand colour and support email. To use your own design, enter a subject and/or HTML below. Leave empty to keep the default.</p>

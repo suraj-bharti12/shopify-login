@@ -94,6 +94,7 @@ export function normalize(raw) {
     customerGroup,
     loginDomain,
     forgotMode: raw.forgotMode === 'link' ? 'link' : 'code',
+    afterReset: raw.afterReset === 'page' ? 'page' : 'signin',
     emails,
     guestLookup: ['confirm', 'direct'].includes(raw.guestLookup) ? raw.guestLookup : 'off',
     adminApi: {
@@ -136,6 +137,7 @@ function toDoc(s) {
     customerGroup: s.customerGroup,
     loginDomain: s.loginDomain || '',
     forgotMode: s.forgotMode,
+    afterReset: s.afterReset,
     emails: s.emails,
     guestLookup: s.guestLookup,
     adminApi: s.adminApi,

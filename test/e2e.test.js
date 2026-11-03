@@ -35,6 +35,8 @@ Object.assign(process.env, {
   MAIL_TRANSPORT: 'console',
   SMS_PROVIDER: 'console',
   OTP_RESEND_COOLDOWN_SECONDS: '0',
+  LOGIN_SEND_LIMIT: '1000',
+  LOGIN_POST_LIMIT: '1000',
   GOOGLE_CLIENT_ID: 'g-client',
   GOOGLE_CLIENT_SECRET: 'g-secret',
   FACEBOOK_APP_ID: 'fb-app',
@@ -1030,4 +1032,34 @@ test('email design: branded by default, custom subject and HTML per store, previ
   const o = await api('/api/login/otp/send', { store: 'other-store', returnTo: 'https://other.example/customer_authentication/login', identifier: 'design2@example.com' }, OTHER_ORIGIN);
   assert.equal(o.json.step, 'otp');
   assert.match(lastSent('design2@example.com').text, /Subject: \d{6} is your Other code/);
+});
+
+test('forgot password by link: "return to the page" option goes back to the page with the drawer open, not signed in', async () => {
+  const b = await adminBrowser();
+  const page = await b.req('/admin/stores/test-store');
+  assert.match(page.text, /Return to the page they started from, with the login drawer open/);
+  const saved = await b.req('/admin/stores/test-store', {
+    method: 'POST',
+    form: {
+      _csrf: csrfOf(page.text), name: 'Test Store', shopDomain: 'test-store.myshopify.com', shopId: '111', domains: 'store.example',
+      brandName: 'Test Brand', color: '#123456', smsTemplate: 'TEST {otp} CODE', forgotMode: 'link', afterReset: 'page',
+    },
+  });
+  assert.equal(saved.status, 303);
+  assert.equal(stores.get('test-store').afterReset, 'page');
+
+  const email = 'asha@example.com';
+  await api('/api/login/forgot', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email });
+  const tokenValue = new URL(lastLink(email)).searchParams.get('token');
+  const br = browser();
+  const done = await br.req('/reset-password', { method: 'POST', form: { token: tokenValue, password: 'pagemode123', confirmPassword: 'pagemode123' } });
+  assert.match(done.text, /sign in with your email and new password/);
+  const back = done.text.match(/class="idp-btn" href="([^"]+)"/)[1].replace(/&amp;/g, '&');
+  assert.equal(back, `${STORE_ORIGIN}/products/shirt#idp-login`);
+  // not signed in: Shopify's login shows our login page
+  const auth = await br.go(authorizeUrl());
+  assert.equal(auth.status, 200);
+  assert.match(auth.text, /id="idp-login"/);
+  const ok = await api('/api/login/password', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email, password: 'pagemode123' });
+  assert.equal(ok.json.step, 'done');
 });

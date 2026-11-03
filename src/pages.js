@@ -3,7 +3,7 @@
 import { config } from './config.js';
 import { stores, publicConfig } from './stores.js';
 
-export const ASSET_VERSION = '14';
+export const ASSET_VERSION = '15';
 const FONTS = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({
@@ -105,13 +105,16 @@ export function resetPasswordPage({ store, token, email, error }) {
 }
 
 /** After a password was set from the email link. */
-export function resetDonePage({ store, continueUrl }) {
+export function resetDonePage({ store, continueUrl, signedIn = true }) {
   const b = store.brand;
+  const name = esc(b.name || store.name);
   return shell('Password updated', b, `<div class="idp idp--page" style="--idp-brand:${esc(b.color)}"><div class="idp-panel"><div class="idp-inner">
   ${brandHead(b)}
   <h2 class="idp-h">Password Updated</h2>
-  <p class="idp-sub">Your new password is saved. Continue to ${esc(b.name || store.name)} to finish signing in.</p>
-  <a class="idp-btn" href="${esc(continueUrl)}">Continue to ${esc(b.name || store.name)}</a>
+  <p class="idp-sub">${signedIn
+    ? `Your new password is saved. Continue to ${name} to finish signing in.`
+    : `Your new password is saved. Go back to ${name} and sign in with your email and new password.`}</p>
+  <a class="idp-btn" href="${esc(continueUrl)}">${signedIn ? `Continue to ${name}` : `Back to ${name}`}</a>
 </div></div></div>`);
 }
 

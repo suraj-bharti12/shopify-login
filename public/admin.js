@@ -63,6 +63,15 @@
     });
   }
 
+  // Store form: "After the new password is saved" only matters for link resets
+  var forgotSel = document.querySelector('select[name="forgotMode"]');
+  var afterReset = document.querySelector('[data-after-reset]');
+  if (forgotSel && afterReset) {
+    var syncReset = function () { afterReset.hidden = forgotSel.value !== 'link'; };
+    forgotSel.addEventListener('change', syncReset);
+    syncReset();
+  }
+
   // Store form: warn before changing a connected store's login domain
   var domainInput = document.querySelector('[data-domain-input]');
   var domainWarn = document.querySelector('[data-domain-warn]');

@@ -207,6 +207,7 @@ export function adminRouter() {
     afterLogin: b.afterLogin,
     loginDomain: b.loginDomain,
     forgotMode: b.forgotMode,
+    afterReset: b.afterReset,
     emails: {
       codeSubject: b.codeSubject, codeHtml: b.codeHtml, resetSubject: b.resetSubject, resetHtml: b.resetHtml,
     },
