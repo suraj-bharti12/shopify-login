@@ -3,7 +3,7 @@
 import { config } from './config.js';
 import { stores, publicConfig } from './stores.js';
 
-export const ASSET_VERSION = '15';
+export const ASSET_VERSION = '16';
 const FONTS = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({
@@ -114,6 +114,7 @@ export function resetDonePage({ store, continueUrl, signedIn = true }) {
   <p class="idp-sub">${signedIn
     ? `Your new password is saved. Continue to ${name} to finish signing in.`
     : `Your new password is saved. Go back to ${name} and sign in with your email and new password.`}</p>
+  <p class="idp-muted" style="margin:0 0 18px">Still have ${name} open in another tab? It has moved on to sign-in, so you can also close this tab and continue there.</p>
   <a class="idp-btn" href="${esc(continueUrl)}">${signedIn ? `Continue to ${name}` : `Back to ${name}`}</a>
 </div></div></div>`);
 }

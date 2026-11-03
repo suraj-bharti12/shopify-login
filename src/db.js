@@ -142,9 +142,12 @@ const PasswordResetSchema = new Schema({
   email: { type: String, required: true },
   userId: { type: ObjectId, ref: 'User' },
   returnTo: String,
+  waitHash: String, // lets the window that asked for the link see when it was used
   usedAt: Date,
+  doneAt: Date, // a new password was saved for this email (from this or a newer link)
   expiresAt: { type: Date, required: true },
 }, { timestamps: true });
+PasswordResetSchema.index({ waitHash: 1 });
 PasswordResetSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 PasswordResetSchema.index({ email: 1, createdAt: -1 });
 

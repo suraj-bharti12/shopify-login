@@ -1105,3 +1105,33 @@ test('email design: starter templates are offered in the panel and can be saved 
   assert.match(preview.text, /background:#123456/);
   assert.match(preview.text, /href="http:\/\/localhost:3999\/reset-password\?token=sample"/);
 });
+
+test('forgot password by link: the window that asked for the link learns when the password is set', async () => {
+  const b = await adminBrowser();
+  const page = await b.req('/admin/stores/test-store');
+  await b.req('/admin/stores/test-store', {
+    method: 'POST',
+    form: {
+      _csrf: csrfOf(page.text), name: 'Test Store', shopDomain: 'test-store.myshopify.com', shopId: '111', domains: 'store.example',
+      brandName: 'Test Brand', color: '#123456', smsTemplate: 'TEST {otp} CODE', forgotMode: 'link', afterReset: 'signin',
+    },
+  });
+  const email = 'waiter@example.com';
+  const f = await api('/api/login/forgot', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email });
+  assert.ok(f.json.waitId);
+  const status = (origin = STORE_ORIGIN) => api('/api/login/reset-status', { waitId: f.json.waitId }, origin);
+  assert.equal((await status()).json.status, 'waiting');
+  assert.equal((await status(OTHER_ORIGIN)).status, 403);
+  assert.equal((await api('/api/login/reset-status', { waitId: 'nope' })).json.status, 'expired');
+
+  const tokenValue = new URL(lastLink(email)).searchParams.get('token');
+  const done = await browser().req('/reset-password', { method: 'POST', form: { token: tokenValue, password: 'waiter1234', confirmPassword: 'waiter1234' } });
+  assert.match(done.text, /another tab/);
+  const after = await status();
+  assert.equal(after.json.status, 'done');
+  assert.equal(after.json.email, email);
+  // it only says "done": signing in there still needs the new password
+  assert.equal(after.json.redirect, undefined);
+  const ok = await api('/api/login/password', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email, password: 'waiter1234' });
+  assert.equal(ok.json.step, 'done');
+});

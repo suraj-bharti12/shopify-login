@@ -316,8 +316,9 @@ export function loginRouter() {
     const wait = last ? config.otp.resendCooldownSeconds * 1000 - (Date.now() - last.createdAt.getTime()) : 0;
     if (wait > 0) throw new LoginError(`Please wait ${Math.ceil(wait / 1000)}s before requesting another link.`);
     const raw = token();
+    const waitId = token();
     await PasswordReset.create({
-      _id: sha(raw), storeId: store.id, email, userId: user?._id, returnTo: flow.returnTo, expiresAt: later(RESET_LINK_MINUTES * 60_000),
+      _id: sha(raw), storeId: store.id, email, userId: user?._id, returnTo: flow.returnTo, waitHash: sha(waitId), expiresAt: later(RESET_LINK_MINUTES * 60_000),
     });
     const link = `${issuerFor(store)}/reset-password?token=${encodeURIComponent(raw)}`;
     try {
@@ -328,8 +329,21 @@ export function loginRouter() {
       throw new LoginError('We couldn’t send the email right now. Please try again in a moment.', 502);
     }
     await LoginFlow.deleteOne({ _id: flow._id });
-    return { step: 'sent', masked: maskTarget(email), minutes: RESET_LINK_MINUTES };
+    return { step: 'sent', masked: maskTarget(email), minutes: RESET_LINK_MINUTES, waitId };
   }
+
+  // The window that asked for the link checks whether the password was set
+  // (the link usually opens in another tab or on the phone). It only learns
+  // "done"; it is not signed in by this, the customer signs in with the new
+  // password there.
+  router.post('/api/login/reset-status', postLimit, json, api(async (req) => {
+    const reset = await PasswordReset.findOne({ waitHash: sha(req.body.waitId) });
+    const store = reset && stores.get(reset.storeId);
+    if (!reset || !store) return { status: 'expired' };
+    if (!originAllowed(req.get('origin'), store)) throw new LoginError('This website is not allowed to use this login.', 403);
+    if (reset.doneAt) return { status: 'done', email: reset.email };
+    return { status: reset.expiresAt < new Date() ? 'expired' : 'waiting' };
+  }));
 
   async function findReset(raw) {
     const reset = raw && await PasswordReset.findOne({ _id: sha(raw), usedAt: { $exists: false }, expiresAt: { $gt: new Date() } });
@@ -394,7 +408,10 @@ export function loginRouter() {
       await user.setPassword(password);
       user.emailVerified = true; // they opened the link sent to this inbox
       await user.save();
-      await PasswordReset.deleteMany({ email: reset.email, storeId: store.id, usedAt: { $exists: false } });
+      // Every link for this email is now used up, and any waiting window can continue.
+      const now = new Date();
+      await PasswordReset.updateMany({ email: reset.email, storeId: store.id, doneAt: { $exists: false } }, { $set: { doneAt: now } });
+      await PasswordReset.updateMany({ email: reset.email, storeId: store.id, usedAt: { $exists: false } }, { $set: { usedAt: now } });
       const signIn = store.afterReset !== 'page';
       if (signIn) {
         await recordLogin(user, store.id, 'password_reset');

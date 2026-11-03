@@ -211,6 +211,38 @@
     }, 1000);
   }
 
+  // After "Forgot password" by link: the link opens in another tab or on the
+  // phone. Watch for the new password and move this window on to sign-in.
+  function waitForReset(waitId, maxMs) {
+    clearInterval(state.resetTimer);
+    state.resetCheck = null;
+    if (!waitId) return;
+    var until = Date.now() + maxMs;
+    var busy = false;
+    function stop() { clearInterval(state.resetTimer); state.resetCheck = null; }
+    function check() {
+      var visible = !form('sent').hidden && (MODE === 'page' || !root.hidden);
+      if (!visible || Date.now() > until) { stop(); return; }
+      if (document.hidden || busy) return; // checked again when the customer comes back to this tab
+      busy = true;
+      api('/api/login/reset-status', { waitId: waitId }).then(function (r) {
+        busy = false;
+        if (r.status === 'expired') { stop(); return; }
+        if (r.status !== 'done' || form('sent').hidden) return;
+        stop();
+        var p = form('password');
+        if (r.email) p.email.value = r.email;
+        show('password', 'Your new password is saved. Sign in with your email and new password.');
+        setTimeout(function () { (r.email ? p.password : p.email).focus(); }, 80);
+      }, function () { busy = false; });
+    }
+    state.resetCheck = check;
+    state.resetTimer = setInterval(check, 4000);
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && state.resetCheck) state.resetCheck(); // back in this tab: check now
+  });
+
   function step(res) {
     if (res.flowId) state.flowId = res.flowId;
     if (res.step === 'otp') {
@@ -227,6 +259,7 @@
       show('reset');
     } else if (res.step === 'sent') {
       show('sent', 'We’ve sent a link to ' + res.masked + '. Open it to set a new password. The link works once and expires in ' + (res.minutes || 30) + ' minutes.');
+      waitForReset(res.waitId, (res.minutes || 30) * 60000);
     } else if (res.step === 'done') {
       show('loading');
       window.location.href = res.redirect;
