@@ -182,7 +182,9 @@ const StoreSchema = new Schema({
   loginDomain: String, // e.g. login.berrylush.com (empty = the server's main address)
   forgotMode: { type: String, default: 'code' }, // 'code' (in the login window) or 'link' (by email)
   afterReset: { type: String, default: 'signin' },
-  passwordRule: { type: String, default: 'standard' }, // 'standard' or 'strong' (see users.js) // link only: 'signin' (signed in) or 'page' (back to the page, sign in again)
+  passwordRule: { type: String, default: 'standard' }, // 'standard' or 'strong' (see users.js)
+  design: { width: String, side: String, button: String, corners: String, font: String }, // see stores.js DESIGN_OPTIONS
+  customCss: String, // the store's own CSS for the login window // link only: 'signin' (signed in) or 'page' (back to the page, sign in again)
   emails: { codeSubject: String, codeHtml: String, resetSubject: String, resetHtml: String },
   // Which parts use this store's own keys instead of Settings, and those keys
   // (secrets encrypted, see settings.js). Keys look like "sms:gupshup:userId".

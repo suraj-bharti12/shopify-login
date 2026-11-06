@@ -107,6 +107,7 @@ export function guidePage(ctx) {
       row('<b>Logo</b> (PNG or SVG, transparent background)', 'Shown at the top of the login drawer and page. Upload it in Shopify admin → Content → Files and use its https link.', 'Store → Login look → Logo URL'),
       row('<b>Brand colour</b> (hex, e.g. #8b1d24)', 'Used for the brand name and accents.', 'Store → Brand color'),
       row('Welcome line, tagline and <b>support email</b>', 'Text shown in the drawer.', 'Store → Login look'),
+      row('Preferred <b>drawer width</b> and side, button style, corners and font', 'Matches the login window to the store\'s theme. The width is a share of desktop screens and never narrower than 380px.', 'Store → Login window design'),
     ]))}
 
     ${section('decisions', 'Decisions to agree with the client', '', `<div class="scroll"><table class="table guide-table">

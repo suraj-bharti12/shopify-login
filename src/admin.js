@@ -212,6 +212,10 @@ export function adminRouter() {
     forgotMode: b.forgotMode,
     afterReset: b.afterReset,
     passwordRule: b.passwordRule,
+    customCss: b.customCss,
+    design: {
+      width: b.designWidth, side: b.designSide, button: b.designButton, corners: b.designCorners, font: b.designFont,
+    },
     emails: {
       codeSubject: b.codeSubject, codeHtml: b.codeHtml, resetSubject: b.resetSubject, resetHtml: b.resetHtml,
     },

@@ -1311,3 +1311,51 @@ test('Shopify customer ID: a session from one shop is not reused for another sho
   assert.match(other.text, /data-store="other-store"/);
   assert.ok((await br.go(authorizeUrl())).final, 'still signed in on test-store');
 });
+
+test('login window design: width, side, buttons, corners and font per store', async () => {
+  const b = await adminBrowser();
+  const page = await b.req('/admin/stores/test-store');
+  assert.match(page.text, /Login window design/);
+  assert.match(page.text, /50% of the screen/);
+  const saved = await saveStoreForm(b, {
+    designWidth: '35', designSide: 'left', designButton: 'filled', designCorners: 'rounded', designFont: 'sans',
+  });
+  assert.equal(saved.status, 303, saved.text.slice(0, 300));
+  const cfg = await (await fetch(`${ISSUER}/api/login/config?store=test-store`)).json();
+  assert.deepEqual(cfg.design, { width: '35', side: 'left', button: 'filled', corners: 'rounded', font: 'sans' });
+  const other = await (await fetch(`${ISSUER}/api/login/config?store=other-store`)).json();
+  assert.deepEqual(other.design, { width: '', side: 'right', button: 'outline', corners: 'square', font: 'serif' });
+  // unknown values fall back to the default
+  await saveStoreForm(b, { designWidth: '99', designSide: 'top' });
+  const cfg2 = await (await fetch(`${ISSUER}/api/login/config?store=test-store`)).json();
+  assert.equal(cfg2.design.width, '');
+  assert.equal(cfg2.design.side, 'right');
+  // server-rendered pages get the classes too
+  await saveStoreForm(b, { designButton: 'filled', designCorners: 'rounded', forgotMode: 'link' });
+  await api('/api/login/forgot', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email: 'design.page@example.com' });
+  const resetPage = await browser().req(lastLink('design.page@example.com'));
+  assert.match(resetPage.text, /class="idp idp--page idp--filled idp--rounded"/);
+  await saveStoreForm(b, { forgotMode: 'code' });
+});
+
+test('custom CSS: per store, reaches the drawer and the store pages, cannot break out of the style tag', async () => {
+  const b = await adminBrowser();
+  const css = '@media (min-width:1024px){ .idp.idp--drawer .idp-panel{ width: 480px; } }\n.idp .idp-h::after{ content: "</style><script>alert(1)</script>"; }';
+  const saved = await saveStoreForm(b, { customCss: css, forgotMode: 'link' });
+  assert.equal(saved.status, 303, saved.text.slice(0, 300));
+  const cfg = await (await fetch(`${ISSUER}/api/login/config?store=test-store`)).json();
+  assert.match(cfg.customCss, /width: 480px/);
+  assert.ok(!cfg.customCss.includes('<'));
+  const other = await (await fetch(`${ISSUER}/api/login/config?store=other-store`)).json();
+  assert.equal(other.customCss, '');
+  // the admin form shows it as typed
+  const page = await b.req('/admin/stores/test-store');
+  assert.ok(page.text.includes('content: &quot;&lt;/style&gt;&lt;script&gt;'));
+  // reset page includes it safely
+  await api('/api/login/forgot', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email: 'css.page@example.com' });
+  const resetPage = await browser().req(lastLink('css.page@example.com'));
+  assert.match(resetPage.text, /<style data-store-css>@media \(min-width:1024px\)/);
+  assert.ok(!resetPage.text.includes('</style><script>alert'));
+  await saveStoreForm(b, { customCss: '', forgotMode: 'code' });
+  assert.equal((await (await fetch(`${ISSUER}/api/login/config?store=test-store`)).json()).customCss, '');
+});

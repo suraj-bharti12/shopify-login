@@ -1,15 +1,18 @@
 // HTML pages served by this server. The login UI itself lives in
 // public/login.js + public/login.css (same code as the store drawer).
 import { config } from './config.js';
-import { stores, publicConfig } from './stores.js';
+import { stores, publicConfig, designClasses } from './stores.js';
 import { passwordRules } from './users.js';
 
-export const ASSET_VERSION = '16';
+export const ASSET_VERSION = '18';
 const FONTS = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
+
+// The store's own CSS (admin panel → store → Login window design).
+const storeCss = (store) => (store?.customCss ? `<style data-store-css>${store.customCss}</style>` : '');
 
 function shell(title, brand, body, extraHead = '') {
   return `<!DOCTYPE html>
@@ -66,7 +69,7 @@ export function messagePage({ title, message, store }) {
     ? `<img class="idp-logo" src="${esc(b.logoUrl)}" alt="${esc(b.name)}">`
     : `<div class="idp-wordmark">${esc(b.name)}</div>`;
   const back = s.origins?.[0] ? `<a class="idp-btn" href="${esc(s.origins[0])}">Back to store</a>` : '';
-  return shell(title, b, `<div class="idp idp--page" style="--idp-brand:${esc(b.color)}"><div class="idp-panel"><div class="idp-inner">
+  return shell(title, b, `${storeCss(store)}<div class="idp idp--page ${designClasses(store?.design)}" style="--idp-brand:${esc(b.color)}"><div class="idp-panel"><div class="idp-inner">
   <div class="idp-head">${b.welcome ? `<p class="idp-welcome">${esc(b.welcome)}</p>` : ''}${logo}</div>
   <hr class="idp-rule">
   <h2 class="idp-h">${esc(title)}</h2>
@@ -89,7 +92,7 @@ const pwInput = (name, ph, auto = 'new-password') => `<div class="idp-pw"><input
 /** Page opened from the password reset email (store setting "Link by email"). */
 export function resetPasswordPage({ store, token, email, error }) {
   const b = store.brand;
-  return shell('Set a new password', b, `<div class="idp idp--page" style="--idp-brand:${esc(b.color)}"><div class="idp-panel"><div class="idp-inner">
+  return shell('Set a new password', b, `${storeCss(store)}<div class="idp idp--page ${designClasses(store?.design)}" style="--idp-brand:${esc(b.color)}"><div class="idp-panel"><div class="idp-inner">
   ${brandHead(b)}
   <h2 class="idp-h">Set New Password</h2>
   <p class="idp-sub">For ${esc(email)}</p>
@@ -111,7 +114,7 @@ export function resetPasswordPage({ store, token, email, error }) {
 export function resetDonePage({ store, continueUrl, signedIn = true }) {
   const b = store.brand;
   const name = esc(b.name || store.name);
-  return shell('Password updated', b, `<div class="idp idp--page" style="--idp-brand:${esc(b.color)}"><div class="idp-panel"><div class="idp-inner">
+  return shell('Password updated', b, `${storeCss(store)}<div class="idp idp--page ${designClasses(store?.design)}" style="--idp-brand:${esc(b.color)}"><div class="idp-panel"><div class="idp-inner">
   ${brandHead(b)}
   <h2 class="idp-h">Password Updated</h2>
   <p class="idp-sub">${signedIn

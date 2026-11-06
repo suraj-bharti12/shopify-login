@@ -58,6 +58,17 @@ Store page → **SMS, email & social login**. For each part choose:
 
 The store page has **Test this store's SMS** and **Test this store's email** buttons. Passwords and keys are stored encrypted. OTP rules and the default country code come from Settings for all stores.
 
+### Login window design
+Store page → **Login window design**: drawer width on desktop (standard 570px, or 20% to 50% of the screen, never narrower than 380px), which side it opens from, outline or filled buttons, square or rounded corners, and classic or modern heading font. Tablets use 570px and phones the full screen. Changes apply to the store straight after saving; the snippet stays the same.
+
+For anything else, open **Custom CSS** in the same card. It is added after the built-in styles on the drawer, the checkout sign-in page and the password reset pages, and overrides the choices above. Start every rule with `.idp`, for example:
+
+```css
+@media (min-width: 1024px) {
+  .idp.idp--drawer .idp-panel { width: 480px; }
+}
+```
+
 ### Password rules
 Store page → **Passwords & emails → Password rules**: **Standard** (at least 8 characters with letters and numbers) or **Strong** (at least 8 characters with uppercase, lowercase, number and special character). The rules show as a checklist that ticks while the customer types a new password. Existing passwords keep working.
 

@@ -4,7 +4,9 @@ import { esc, ASSET_VERSION } from './pages.js';
 import {
   FIELDS, STORE_FIELDS, sourceOf, currentValue, storeCredValue,
 } from './settings.js';
-import { DEFAULT_BRAND, stores } from './stores.js';
+import {
+  DEFAULT_BRAND, stores, cleanDesign, designClasses,
+} from './stores.js';
 import { issuerFor } from './issuers.js';
 import { EMAIL_TYPES, PLACEHOLDERS, STARTER_HTML } from './emails.js';
 
@@ -147,6 +149,58 @@ export function dashboardPage(ctx, { counts, storesList }) {
 
 // ---------- stores ----------
 
+// ---------- login window design ----------
+const formDesign = (store, values) => (values
+  ? cleanDesign({
+    width: values.designWidth, side: values.designSide, button: values.designButton, corners: values.designCorners, font: values.designFont,
+  })
+  : cleanDesign(store?.design));
+
+function designCard(store, values) {
+  const d = formDesign(store, values);
+  const opt = (value, label, current) => `<option value="${value}"${value === current ? ' selected' : ''}>${label}</option>`;
+  const widths = [['', 'Standard (570px)'], ...['20', '25', '30', '35', '40', '45', '50'].map((w) => [w, `${w}% of the screen`])];
+  return `<section class="card" id="design">
+        <h2>Login window design</h2>
+        <div class="row-2">
+          <label><span>Drawer width on desktop</span>
+            <select name="designWidth" data-design="width">${widths.map(([w, l]) => opt(w, l, d.width)).join('')}</select></label>
+          <label><span>Drawer opens from</span>
+            <select name="designSide" data-design="side">${opt('right', 'Right', d.side)}${opt('left', 'Left', d.side)}</select></label>
+        </div>
+        <div class="screen-demo" data-screen aria-hidden="true">
+          <div class="screen-bar"></div>
+          <div class="screen-drawer${d.side === 'left' ? ' left' : ''}" style="width:${d.width ? `${d.width}%` : '30%'}"></div>
+        </div>
+        <p class="help" data-screen-note>On desktop screens (1024px and wider). It is never narrower than 380px, so it also fits small laptops. Tablets use 570px and phones the full screen.</p>
+        <div class="row-2">
+          <label><span>Buttons</span>
+            <select name="designButton" data-design="button">${opt('outline', 'Outline (white with border)', d.button)}${opt('filled', 'Filled with the brand colour', d.button)}</select></label>
+          <label><span>Corners</span>
+            <select name="designCorners" data-design="corners">${opt('square', 'Square', d.corners)}${opt('rounded', 'Rounded', d.corners)}</select></label>
+        </div>
+        <label><span>Heading font</span>
+          <select name="designFont" data-design="font">${opt('serif', 'Classic (serif)', d.font)}${opt('sans', 'Modern (sans-serif)', d.font)}</select></label>
+        <p class="muted small">The preview shows buttons, corners and font. The drawer on the store uses the new design straight after saving.</p>
+        <details class="email-design"${values?.customCss ? ' open' : ''}>
+          <summary>Custom CSS <span class="muted">(optional, for developers)</span></summary>
+          <p class="muted small">Added after the built-in styles on the store's drawer, the checkout sign-in page and the password reset pages. Start every rule with <code>.idp</code> so it only changes the login window. Saved CSS overrides the choices above.</p>
+          <label>CSS<textarea name="customCss" rows="8" class="mono" placeholder="/* e.g. a fixed width on desktop */&#10;@media (min-width: 1024px) {&#10;  .idp.idp--drawer .idp-panel { width: 480px; }&#10;}">${esc(values?.customCss ?? store?.customCss?.replace(/\\3c /g, '<') ?? '')}</textarea></label>
+          <details class="inline"><summary>Useful selectors</summary>
+            <ul class="mono-list">
+              <li>.idp.idp--drawer .idp-panel <span class="muted">— the drawer (width, background)</span></li>
+              <li>.idp.idp--page .idp-panel <span class="muted">— the card on the sign-in and reset pages</span></li>
+              <li>.idp .idp-inner <span class="muted">— the content column (max-width, padding)</span></li>
+              <li>.idp .idp-btn <span class="muted">— buttons</span></li>
+              <li>.idp input <span class="muted">— text boxes</span></li>
+              <li>.idp .idp-h, .idp .idp-welcome <span class="muted">— headings</span></li>
+              <li>.idp-overlay <span class="muted">— the dark background behind the drawer</span></li>
+              <li>.idp { --idp-brand: #8b1d24; } <span class="muted">— brand colour variable</span></li>
+            </ul></details>
+        </details>
+      </section>`;
+}
+
 // Which customer list a store uses. Stores in the same group share customers.
 function groupBadge(s) {
   const others = stores.all().filter((o) => o.id !== s.id && o.customerGroup === s.customerGroup);
@@ -208,6 +262,7 @@ function storeForm({ store, values, error, isNew, csrf }) {
     forgotMode: store.forgotMode,
     afterReset: store.afterReset,
     passwordRule: store.passwordRule,
+    customCss: (store.customCss || '').replace(/\\3c /g, '<'),
     codeSubject: store.emails?.codeSubject || '',
     codeHtml: store.emails?.codeHtml || '',
     resetSubject: store.emails?.resetSubject || '',
@@ -251,6 +306,8 @@ function storeForm({ store, values, error, isNew, csrf }) {
           <label>Support email<input name="supportEmail" type="email" value="${esc(v.supportEmail || '')}" placeholder="help@yourstore.com"></label>
         </div>
       </section>
+
+      ${designCard(store, values)}
 
       <section class="card" id="login-domain">
         <h2>Login domain</h2>
@@ -324,7 +381,7 @@ function storeForm({ store, values, error, isNew, csrf }) {
     <aside class="preview-wrap">
       <div class="preview-label">Preview</div>
       <div class="preview">
-        <div class="idp idp--page" data-preview-root style="--idp-brand:${esc(color)}"><div class="idp-panel"><div class="idp-inner">
+        <div class="idp idp--page ${designClasses(formDesign(store, values))}" data-preview-root style="--idp-brand:${esc(color)}"><div class="idp-panel"><div class="idp-inner">
           <div class="idp-head">
             <p class="idp-welcome" data-pv="welcome">${esc(v.welcome || '')}</p>
             <img class="idp-logo" data-pv="logo" alt="" ${v.logoUrl ? `src="${esc(v.logoUrl)}"` : 'hidden'}>

@@ -153,11 +153,32 @@
     return b;
   }
 
+  // ---------- store design (admin panel → store → Login window design) ----------
+  function applyDesign(d) {
+    root.classList.toggle('idp--left', d.side === 'left');
+    root.classList.toggle('idp--filled', d.button === 'filled');
+    root.classList.toggle('idp--rounded', d.corners === 'rounded');
+    root.classList.toggle('idp--sans', d.font === 'sans');
+    // Desktop width as a share of the screen, never narrower than 380px.
+    if (d.width) root.style.setProperty('--idp-w', 'max(380px, ' + d.width + 'vw)');
+    else root.style.removeProperty('--idp-w');
+  }
+
+  // The store's own CSS, added after the widget's styles so it wins.
+  function applyCss(css) {
+    var el = document.getElementById('idp-store-css');
+    if (!css) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement('style'); el.id = 'idp-store-css'; document.head.appendChild(el); }
+    el.textContent = css;
+  }
+
   // ---------- store branding + social buttons ----------
   function applyConfig(cfg) {
     state.cfg = cfg;
     var b = cfg.brand || {};
     if (b.color) root.style.setProperty('--idp-brand', b.color);
+    applyDesign(cfg.design || {});
+    applyCss(cfg.customCss || '');
     var welcome = q('[data-b="welcome"]'); welcome.textContent = b.welcome || ''; welcome.hidden = !b.welcome;
     var tagline = q('[data-b="tagline"]'); tagline.textContent = b.tagline || ''; tagline.hidden = !b.tagline;
     var logo = q('[data-b="logo"]'); var name = q('[data-b="name"]');

@@ -145,5 +145,20 @@
       if (e.target.matches('[data-preview], [data-color-picker], input[name="name"]')) update();
     });
     update();
+
+    // Login window design: preview classes + the little screen showing the drawer width
+    var design = function () {
+      var get = function (k) { var el = document.querySelector('[data-design="' + k + '"]'); return el ? el.value : ''; };
+      root.classList.toggle('idp--filled', get('button') === 'filled');
+      root.classList.toggle('idp--rounded', get('corners') === 'rounded');
+      root.classList.toggle('idp--sans', get('font') === 'sans');
+      var drawer = document.querySelector('.screen-drawer');
+      if (drawer) {
+        drawer.style.width = (get('width') || '30') + '%';
+        drawer.classList.toggle('left', get('side') === 'left');
+      }
+    };
+    document.addEventListener('change', function (e) { if (e.target.matches('[data-design]')) design(); });
+    design();
   }
 })();

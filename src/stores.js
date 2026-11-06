@@ -21,6 +21,34 @@ export const DEFAULT_BRAND = {
   welcome: 'Welcome to', name: 'My Store', logoUrl: '', tagline: '', color: '#111111', supportEmail: '',
 };
 
+// Login window design, chosen per store in the admin panel.
+export const DESIGN_OPTIONS = {
+  width: ['', '20', '25', '30', '35', '40', '45', '50'], // desktop drawer width, % of the screen ('' = 570px)
+  side: ['right', 'left'],
+  button: ['outline', 'filled'],
+  corners: ['square', 'rounded'],
+  font: ['serif', 'sans'],
+};
+export function cleanDesign(d = {}) {
+  const out = {};
+  for (const [k, options] of Object.entries(DESIGN_OPTIONS)) {
+    const v = String(d?.[k] ?? '').trim();
+    out[k] = options.includes(v) ? v : options[0];
+  }
+  return out;
+}
+// Store's own CSS for the login window. "<" is written as the CSS escape \3c
+// so the text can never close the <style> tag it is placed in.
+export const MAX_CUSTOM_CSS = 20_000;
+export const cleanCss = (v) => String(v || '').replace(/\r\n?/g, '\n').trim().slice(0, MAX_CUSTOM_CSS).replace(/</g, '\\3c ');
+
+/** CSS classes for the login window (widget, hosted page, reset pages). */
+export const designClasses = (d) => {
+  const x = cleanDesign(d);
+  return [x.side === 'left' && 'idp--left', x.button === 'filled' && 'idp--filled', x.corners === 'rounded' && 'idp--rounded', x.font === 'sans' && 'idp--sans']
+    .filter(Boolean).join(' ');
+};
+
 export class StoreError extends Error {
   constructor(field, message) { super(message); this.field = field; }
 }
@@ -101,6 +129,8 @@ export function normalize(raw) {
     forgotMode: raw.forgotMode === 'link' ? 'link' : 'code',
     afterReset: raw.afterReset === 'page' ? 'page' : 'signin',
     passwordRule: raw.passwordRule === 'strong' ? 'strong' : 'standard',
+    design: cleanDesign(raw.design),
+    customCss: cleanCss(raw.customCss),
     emails,
     // Own SMS / email / social keys instead of the Settings ones (settings.forStore)
     own: { sms: Boolean(raw.own?.sms), mail: Boolean(raw.own?.mail), social: Boolean(raw.own?.social) },
@@ -140,6 +170,8 @@ function toDoc(s) {
     forgotMode: s.forgotMode,
     afterReset: s.afterReset,
     passwordRule: s.passwordRule,
+    design: s.design,
+    customCss: s.customCss || '',
     emails: s.emails,
     own: s.own,
     creds: toDb(s.creds),
@@ -191,6 +223,8 @@ export function publicConfig(store) {
     afterLogin: store.afterLogin,
     forgotMode: store.forgotMode,
     passwordRules: passwordRules(store.passwordRule),
+    design: store.design,
+    customCss: store.customCss || '',
   };
 }
 

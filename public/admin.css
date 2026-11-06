@@ -239,3 +239,10 @@ label.check input{margin-top:3px;flex:none;width:auto}
 label.check .muted{display:block;font-size:12.5px}
 ul.checks.small{font-size:13px;gap:6px}
 @media (max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}
+
+/* Login window design: little screen showing the drawer width */
+.screen-demo{position:relative;height:120px;margin:14px 0 6px;border:2px solid #2b2b2b;border-radius:8px;background:repeating-linear-gradient(0deg,#f3f3f1 0 14px,#ecece9 14px 15px);overflow:hidden}
+.screen-bar{height:14px;background:#2b2b2b}
+.screen-drawer{position:absolute;top:14px;right:0;bottom:0;background:#fff;border-left:1px solid #d6d6d6;box-shadow:-6px 0 14px rgba(0,0,0,.12);transition:width .2s}
+.screen-drawer.left{right:auto;left:0;border-left:0;border-right:1px solid #d6d6d6;box-shadow:6px 0 14px rgba(0,0,0,.12)}
+.screen-drawer::before{content:"";position:absolute;left:18%;right:18%;top:22px;height:8px;border-radius:4px;background:#d9d9d9;box-shadow:0 18px 0 #e6e6e6,0 34px 0 #e6e6e6,0 54px 0 var(--accent,#8b1d24)}
