@@ -82,6 +82,20 @@ ${js}`);
   app.use(loginRouter());
   if (config.devTestClient) app.use(await devRouter());
 
+  // Shopify needs discovery, /token and /userinfo to answer within one second:
+  // log slow answers and failures so they show up in the server logs.
+  app.use((req, res, next) => {
+    if (!/^\/(token|userinfo|jwks|\.well-known\/openid-configuration)(\/|$)/.test(req.path)) return next();
+    const started = process.hrtime.bigint();
+    res.on('finish', () => {
+      const ms = Number((process.hrtime.bigint() - started) / 1_000_000n);
+      if (ms > 800 || res.statusCode >= 400) {
+        console.warn(`[oidc] ${req.method} ${req.path} -> ${res.statusCode} in ${ms}ms${ms > 800 ? ' (Shopify needs an answer within 1 second)' : ''}`);
+      }
+    });
+    return next();
+  });
+
   // Discovery, /authorize, /token, /userinfo, /jwks, /logout (per login address)
   app.use(oidcHandler());
 

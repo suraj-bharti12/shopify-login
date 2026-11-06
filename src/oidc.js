@@ -275,8 +275,14 @@ function buildProvider(issuer) {
 
   provider.proxy = true; // behind ngrok / Nginx / Render / Railway etc.
   provider.on('server_error', (ctx, err) => console.error('[oidc] server_error', err));
+  // Shopify shows "Access token request error" when /token fails: log why.
   provider.on('grant.error', (ctx, err) => {
-    if (!(err instanceof errors.InvalidGrant) && !(err instanceof errors.InvalidClientAuth)) console.error('[oidc] grant.error', err);
+    const who = ctx.oidc?.client?.clientId || ctx.request?.body?.client_id || '-';
+    if (err instanceof errors.InvalidGrant || err instanceof errors.InvalidClientAuth) {
+      console.warn(`[oidc] token request refused (${who}): ${err.error} - ${err.error_detail || err.message}`);
+    } else {
+      console.error(`[oidc] token request failed (${who})`, err);
+    }
   });
   return provider;
 }
