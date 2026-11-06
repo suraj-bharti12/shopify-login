@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { stores, publicConfig, designClasses } from './stores.js';
 import { passwordRules } from './users.js';
 
-export const ASSET_VERSION = '18';
+export const ASSET_VERSION = '19';
 const FONTS = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap';
 
 export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({

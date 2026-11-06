@@ -159,9 +159,11 @@
     root.classList.toggle('idp--filled', d.button === 'filled');
     root.classList.toggle('idp--rounded', d.corners === 'rounded');
     root.classList.toggle('idp--sans', d.font === 'sans');
-    // Desktop width as a share of the screen, never narrower than 380px.
+    // Desktop width as a share of the screen, never narrower than 380px; the
+    // content then fills the drawer instead of staying a narrow column.
     if (d.width) root.style.setProperty('--idp-w', 'max(380px, ' + d.width + 'vw)');
     else root.style.removeProperty('--idp-w');
+    root.classList.toggle('idp--fluid', !!d.width);
   }
 
   // The store's own CSS, added after the widget's styles so it wins.

@@ -114,3 +114,9 @@ body.idp-page{margin:0;min-height:100vh;background:#f6f6f4}
 .idp.idp--sans .idp-h{font-weight:600;font-size:23px;letter-spacing:-.01em}
 .idp.idp--sans .idp-welcome{font-weight:500;font-size:24px;letter-spacing:-.01em}
 .idp.idp--sans .idp-wordmark{font-weight:700;letter-spacing:-.02em}
+
+/* Drawer width set as % of the screen: content fills the drawer (side space
+   grows with the drawer, between 24px and 56px), up to 960px on huge screens. */
+@media (min-width:1024px){
+  .idp.idp--drawer.idp--fluid .idp-inner{max-width:960px;padding-left:clamp(24px,7%,56px);padding-right:clamp(24px,7%,56px)}
+}

@@ -172,7 +172,7 @@ function designCard(store, values) {
           <div class="screen-bar"></div>
           <div class="screen-drawer${d.side === 'left' ? ' left' : ''}" style="width:${d.width ? `${d.width}%` : '30%'}"></div>
         </div>
-        <p class="help" data-screen-note>On desktop screens (1024px and wider). It is never narrower than 380px, so it also fits small laptops. Tablets use 570px and phones the full screen.</p>
+        <p class="help" data-screen-note>On desktop screens (1024px and wider). It is never narrower than 380px, so it also fits small laptops, and the form fills the drawer with a small margin on each side (up to 960px wide on very large screens). Tablets use 570px and phones the full screen.</p>
         <div class="row-2">
           <label><span>Buttons</span>
             <select name="designButton" data-design="button">${opt('outline', 'Outline (white with border)', d.button)}${opt('filled', 'Filled with the brand colour', d.button)}</select></label>
