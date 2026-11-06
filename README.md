@@ -71,6 +71,11 @@ Each store either keeps a **separate** customer list (the default for new stores
 
 Stores and customers created before customer lists existed are in the shared list `default`.
 
+### Customer ID sent to Shopify
+Shopify links each customer to the ID it receives at sign-in. That ID is made from the Shopify shop and the customer's email (keyed with `OTP_SECRET`), so it stays the same even if the customer's record here is recreated: customer list changed, customer deleted and imported again, or the store removed and added again. Each Shopify shop gets its own ID.
+
+Customers who were linked in Shopify before this change see "The sign-in method you used doesn't match this account" once. Unlink them in Shopify admin → Customers (or delete the test customer) and they sign in normally from then on.
+
 ### Other pages
 - **Settings**: default SMS provider and text, email, social keys and OTP rules, with test SMS and test email buttons.
 - **Customers**: search by email, mobile or name, filter by customer list, view details, block or unblock, remove a social link, or delete.

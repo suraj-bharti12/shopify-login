@@ -26,7 +26,7 @@ import {
 import {
   loginPage, messagePage, resetPasswordPage, resetDonePage,
 } from './pages.js';
-import { providerFor } from './oidc.js';
+import { providerFor, subjectForLogin } from './oidc.js';
 import {
   issuerFor, issuerForRequest, loginOrigins, DEFAULT_ORIGIN,
 } from './issuers.js';
@@ -501,8 +501,9 @@ export function loginRouter() {
       if (auto && Date.now() - auto.t < AUTOLOGIN_TTL) {
         const user = await User.findById(auto.userId).catch(() => null);
         if (user?.canSignIntoShopify() && user.group === store.customerGroup) {
+          const accountId = await subjectForLogin(stores.byClientId(details.params.client_id), user);
           return provider.interactionFinished(req, res, {
-            login: { accountId: user.id, amr: [auto.method || 'otp'], remember: true },
+            login: { accountId, amr: [auto.method || 'otp'], remember: true },
           }, { mergeWithLastSubmission: false });
         }
       }

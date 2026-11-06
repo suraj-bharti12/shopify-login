@@ -94,7 +94,49 @@ function loginPolicy() {
       return store && account && account.group !== store.customerGroup ? Check.REQUEST_PROMPT : Check.NO_NEED_TO_PROMPT;
     },
   ));
+  // Signed in for another Shopify shop that shares the customer list: sign in
+  // again here, so this shop gets its own customer ID.
+  policy.get('login').checks.add(new Check(
+    'other_shop',
+    'the session belongs to another Shopify shop',
+    (ctx) => {
+      const store = stores.byClientId(ctx.oidc.client?.clientId);
+      const account = ctx.oidc.account;
+      if (!store || !account || !String(account.accountId).startsWith('c_')) return Check.NO_NEED_TO_PROMPT;
+      return subjectFor(store, account) === account.accountId ? Check.NO_NEED_TO_PROMPT : Check.REQUEST_PROMPT;
+    },
+  ));
   return policy;
+}
+
+// The customer ID Shopify stores for a customer ("sub"). It is made from the
+// Shopify shop and the customer's email, so it stays the same even if the
+// customer's record here is recreated (customer list changed, customer deleted
+// and imported again, store removed and added again). Shopify then never says
+// "The sign-in method you used doesn't match this account" for a customer whose
+// email it already knows from us. Keyed with OTP_SECRET, so it can't be guessed.
+const SUBJECT_KEY = crypto.createHash('sha256').update(`shopify-subject:v1:${config.otpSecret}`).digest();
+export function subjectFor(store, user) {
+  if (!store || !user.email) return user.id; // /dev test client
+  const mac = crypto.createHmac('sha256', SUBJECT_KEY).update(`${store.shopId}|${user.email.toLowerCase()}`).digest('base64url');
+  return `c_${mac.slice(0, 32)}`;
+}
+
+/** The customer ID used for this login, remembered on the customer so it can be found again. */
+export async function subjectForLogin(store, user) {
+  const sub = subjectFor(store, user);
+  if (sub !== user.id && !user.subjects?.includes(sub)) await User.updateOne({ _id: user._id }, { $addToSet: { subjects: sub } });
+  return sub;
+}
+
+async function userForSubject(id, store) {
+  if (String(id).startsWith('c_')) {
+    const filter = store ? { group: store.customerGroup, subjects: id } : { subjects: id };
+    return User.findOne(filter).sort({ lastLoginAt: -1 });
+  }
+  // /dev test client, and sessions / tokens from before customer IDs were made this way
+  const user = /^[a-f\d]{24}$/i.test(String(id)) ? await User.findById(id) : null;
+  return user && (!store || user.group === store.customerGroup) ? user : null;
 }
 
 // One OpenID provider per login address (default ISSUER + each store's login
@@ -150,9 +192,11 @@ function buildProvider(issuer) {
     conformIdTokenClaims: false, // Shopify reads customer data from the ID token
 
     async findAccount(ctx, id) {
-      const user = await User.findById(id).catch(() => null);
+      const user = await userForSubject(id, stores.byClientId(ctx.oidc?.client?.clientId));
       if (!user || !user.canSignIntoShopify()) return undefined;
-      return { accountId: user.id, group: user.group, claims: async () => user.oidcClaims() };
+      return {
+        accountId: id, group: user.group, email: user.email, claims: async () => ({ ...user.oidcClaims(), sub: id }),
+      };
     },
 
     interactions: {

@@ -52,6 +52,9 @@ const UserSchema = new Schema({
   lastName: { type: String, trim: true },
   identities: { type: [IdentitySchema], default: [] },
   tags: { type: [String], default: [] },
+  // Customer IDs Shopify knows this customer by (one per Shopify shop, made
+  // from the shop + email, see oidc.js subjectFor).
+  subjects: { type: [String], default: [] },
   stores: { type: [String], default: [] }, // store ids this customer has logged in to
   status: { type: String, enum: ['active', 'blocked'], default: 'active' },
   lastLoginAt: Date,
@@ -61,6 +64,7 @@ const UserSchema = new Schema({
 // One email / phone / social account per customer group.
 UserSchema.index({ group: 1, email: 1 }, { name: 'group_email', unique: true, partialFilterExpression: { email: { $type: 'string' } } });
 UserSchema.index({ group: 1, phone: 1 }, { name: 'group_phone', unique: true, partialFilterExpression: { phone: { $type: 'string' } } });
+UserSchema.index({ group: 1, subjects: 1 }, { name: 'group_subjects' });
 UserSchema.index(
   { group: 1, 'identities.provider': 1, 'identities.providerUserId': 1 },
   { name: 'group_identity', unique: true, partialFilterExpression: { 'identities.providerUserId': { $exists: true } } },

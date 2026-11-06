@@ -1261,3 +1261,53 @@ test('customer export: CSV per customer list, ready to import elsewhere', async 
   assert.match(tpl.text, /^first_name,last_name,email,phone/);
   assert.match((await b.req('/admin/customers')).text, /Export CSV/);
 });
+
+test('Shopify customer ID: made from shop + email, the same after the record is recreated, the same in ID token and userinfo', async () => {
+  const loginAsImran = async () => {
+    const s = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, mobile: '9811111111' });
+    const v = await api('/api/login/otp/verify', { flowId: s.json.flowId, code: lastCode('+919811111111') });
+    assert.equal(v.json.step, 'done', JSON.stringify(v.json));
+    const br = browser();
+    await br.req(v.json.redirect);
+    return exchange((await br.go(authorizeUrl())).final);
+  };
+  const first = await loginAsImran();
+  assert.match(first.claims.sub, /^c_[\w-]{32}$/);
+  const user = await mongoose.connection.db.collection('users').findOne({ group: 'default', email: 'imran@example.com' });
+  assert.notEqual(first.claims.sub, String(user._id));
+  const { userinfo_endpoint: userinfo } = await (await fetch(`${ISSUER}/.well-known/openid-configuration`)).json();
+  const info = await (await fetch(userinfo, { headers: { authorization: `Bearer ${first.tokens.access_token}` } })).json();
+  assert.equal(info.sub, first.claims.sub);
+
+  // delete the record and import the customer again -> Shopify still gets the same ID
+  await mongoose.connection.db.collection('users').deleteOne({ _id: user._id });
+  const b = await adminBrowser();
+  const page = await b.req('/admin/customers/import');
+  const csv = 'first_name,last_name,email,phone\nImran,Khan,imran@example.com,9811111111\n';
+  const done = await b.req('/admin/customers/import', { method: 'POST', form: { _csrf: csrfOf(page.text), group: 'default', emailsVerified: '1', csv, action: 'import' } });
+  assert.equal(done.status, 303);
+  const again = await loginAsImran();
+  assert.equal(again.claims.sub, first.claims.sub);
+
+  // another Shopify shop gets a different ID for the same email
+  const { subjectFor } = await import('../src/oidc.js');
+  const fakeUser = { id: 'x', email: 'imran@example.com' };
+  assert.equal(subjectFor(stores.get('test-store'), fakeUser), first.claims.sub);
+  assert.notEqual(subjectFor(stores.get('other-store'), fakeUser), first.claims.sub);
+});
+
+test('Shopify customer ID: a session from one shop is not reused for another shop sharing the customer list', async () => {
+  const br = browser();
+  const s = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, mobile: '9811111111' });
+  const v = await api('/api/login/otp/verify', { flowId: s.json.flowId, code: lastCode('+919811111111') });
+  await br.req(v.json.redirect);
+  assert.ok((await br.go(authorizeUrl())).final, 'signed in on test-store');
+  assert.equal(stores.get('other-store').customerGroup, stores.get('test-store').customerGroup);
+  const otherAuth = `/authorize?${new URLSearchParams({
+    client_id: 'shop_other-store', redirect_uri: 'https://shopify.com/authentication/222/login/external/callback', response_type: 'code', scope: 'openid email', state: 'o', nonce: 'o',
+  })}`;
+  const other = await br.go(otherAuth);
+  assert.equal(other.status, 200, other.final ? `silently went to ${other.final}` : '');
+  assert.match(other.text, /data-store="other-store"/);
+  assert.ok((await br.go(authorizeUrl())).final, 'still signed in on test-store');
+});
