@@ -27,7 +27,6 @@ import {
   loginPage, messagePage, resetPasswordPage, resetDonePage,
 } from './pages.js';
 import { providerFor } from './oidc.js';
-import { adminApiReady, findCustomersByPhone } from './shopifyAdmin.js';
 import {
   issuerFor, issuerForRequest, loginOrigins, DEFAULT_ORIGIN,
 } from './issuers.js';
@@ -151,35 +150,6 @@ export function loginRouter() {
     return { step: 'done', redirect: `${base}/login/complete?ticket=${encodeURIComponent(ticket.id)}` };
   }
 
-  // A mobile number we don't know yet may belong to a guest-checkout customer:
-  // ask Shopify which customer has it, so they don't have to type their email.
-  //   direct  -> sign in to that customer straight away
-  //   confirm -> send a code to that customer's email (shown masked)
-  // No match, several matches or an API problem -> the usual name + email step.
-  async function guestByPhone(flow, store, user) {
-    if (!['direct', 'confirm'].includes(store.guestLookup) || !adminApiReady(store)) return null;
-    let matches;
-    try {
-      matches = await findCustomersByPhone(store, user.phone);
-    } catch (e) {
-      console.warn(`[guest-lookup] ${store.id}: ${e.message}`);
-      return null;
-    }
-    if (matches.length !== 1) return null;
-    const [c] = matches;
-    if (!user.firstName && c.firstName) user.firstName = c.firstName;
-    if (!user.lastName && c.lastName) user.lastName = c.lastName;
-    await user.save();
-    if (store.guestLookup === 'direct') {
-      const merged = await attachVerifiedEmail(user, c.email);
-      return next(flow, store, merged, 'otp_sms_order');
-    }
-    flow.userId = user._id;
-    flow.method = 'otp_sms_order';
-    const res = await sendCode(flow, store, { purpose: 'verify_email', channel: 'email', target: c.email, userId: user._id });
-    return { ...res, notice: `We found your account from your orders. Enter the ${res.length}-digit code we sent to ${res.masked}.` };
-  }
-
   // ---------- API ----------
 
   router.get('/api/login/config', (req, res) => {
@@ -219,10 +189,6 @@ export function loginRouter() {
       if (!user) { user = new User({ group: store.customerGroup, [key]: otp.target }); flow.newCustomer = true; }
       user[`${key}Verified`] = true;
       await user.save();
-      if (key === 'phone' && !(user.email && user.emailVerified)) {
-        const found = await guestByPhone(flow, store, user);
-        if (found) return found;
-      }
       return next(flow, store, user, otp.purpose === 'login_phone' ? 'otp_sms' : 'otp_email');
     }
     if (otp.purpose === 'verify_email') {
@@ -291,7 +257,7 @@ export function loginRouter() {
   router.post('/api/login/reset', postLimit, json, api(async (req) => {
     const { flow, store } = await loadFlow(req);
     if (!flow.resetUserId) throw new LoginError('Please verify the code first.');
-    const problem = passwordProblem(req.body.password);
+    const problem = passwordProblem(req.body.password, store.passwordRule);
     if (problem) throw new LoginError(problem);
     if (req.body.confirmPassword !== undefined && req.body.confirmPassword !== req.body.password) {
       throw new LoginError('The passwords don’t match. Please enter the same password twice.');
@@ -393,7 +359,7 @@ export function loginRouter() {
       const { reset, store } = found;
       const again = (error) => page(res, resetPasswordPage({ store, token: raw, email: reset.email, error }), 400);
       const password = String(req.body.password || '');
-      const problem = passwordProblem(password);
+      const problem = passwordProblem(password, store.passwordRule);
       if (problem) return again(problem);
       if (password !== String(req.body.confirmPassword || '')) return again('The passwords don’t match. Please enter the same password twice.');
 

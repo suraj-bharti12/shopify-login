@@ -113,7 +113,7 @@ export function guidePage(ctx) {
       <thead><tr><th>Question</th><th>Why it matters</th></tr></thead><tbody>
       <tr><td><b>Customer list</b>: separate for this store, or shared with another store?</td><td>Choose shared only for stores of the same business. Separate is the default for new stores.</td></tr>
       <tr><td>After sign-in, return to <b>the same page</b> or the <b>account (orders) page</b>?</td><td>Store → After login.</td></tr>
-      <tr><td>What happens to <b>existing customers</b>?</td><td>Nothing to migrate. They sign in with mobile or email OTP, or use “Forgot password”, and Shopify links them to their existing account and orders by email.</td></tr>
+      <tr><td>What happens to <b>existing customers</b>?</td><td>Nothing to migrate. They sign in with mobile or email OTP, or use “Forgot password”, and Shopify links them to their existing account and orders by email. To let them sign in with just their mobile number from day one, import the Shopify customer export: Customers → <b>Import customers</b>.</td></tr>
       <tr><td><b>Data agreement</b></td><td>Customer names, emails and mobile numbers are stored in your database. The client's privacy policy should mention this, and a data processing agreement between you and the client is recommended (India: DPDP Act).</td></tr>
       </tbody></table></div>`)}
 

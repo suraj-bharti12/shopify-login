@@ -21,11 +21,30 @@ export function normalizePhone(v) {
 
 export const looksLikeEmail = (v) => String(v || '').includes('@');
 
-export function passwordProblem(pw) {
-  if (typeof pw !== 'string' || pw.length < 8) return 'Password must be at least 8 characters.';
+// Password rules a store can choose. The login window shows them as a
+// checklist that ticks while the customer types (same patterns as here).
+export const PASSWORD_RULES = {
+  standard: [
+    { label: 'At least 8 characters', pattern: '^[\\s\\S]{8,}$' },
+    { label: 'Letters and numbers', pattern: '^(?=[\\s\\S]*[A-Za-z])(?=[\\s\\S]*\\d)' },
+  ],
+  strong: [
+    { label: 'At least 8 characters', pattern: '^[\\s\\S]{8,}$' },
+    { label: '1 uppercase letter (A-Z)', pattern: '[A-Z]' },
+    { label: '1 lowercase letter (a-z)', pattern: '[a-z]' },
+    { label: '1 number (0-9)', pattern: '\\d' },
+    { label: '1 special character (!@#$...)', pattern: '[^A-Za-z0-9\\s]' },
+  ],
+};
+export const passwordRules = (rule) => PASSWORD_RULES[rule] || PASSWORD_RULES.standard;
+
+/** Why a new password is not allowed under the store's rules, or null. */
+export function passwordProblem(pw, rule = 'standard') {
+  if (typeof pw !== 'string' || pw.length === 0) return 'Please enter a password.';
   if (pw.length > 128) return 'Password is too long.';
-  if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw)) return 'Password must contain letters and numbers.';
-  return null;
+  const missing = passwordRules(rule).filter((r) => !new RegExp(r.pattern).test(pw));
+  if (!missing.length) return null;
+  return `Your password must contain: ${missing.map((r) => r.label.charAt(0).toLowerCase() + r.label.slice(1)).join(', ')}.`;
 }
 
 export const cleanName = (v) => String(v || '').trim().slice(0, 80);

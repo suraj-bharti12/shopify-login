@@ -177,12 +177,9 @@ const StoreSchema = new Schema({
   customerGroup: String,
   loginDomain: String, // e.g. login.berrylush.com (empty = the server's main address)
   forgotMode: { type: String, default: 'code' }, // 'code' (in the login window) or 'link' (by email)
-  afterReset: { type: String, default: 'signin' }, // link only: 'signin' (signed in) or 'page' (back to the page, sign in again)
+  afterReset: { type: String, default: 'signin' },
+  passwordRule: { type: String, default: 'standard' }, // 'standard' or 'strong' (see users.js) // link only: 'signin' (signed in) or 'page' (back to the page, sign in again)
   emails: { codeSubject: String, codeHtml: String, resetSubject: String, resetHtml: String },
-  // Find guest-checkout customers by mobile number (off | confirm | direct),
-  // using a Dev Dashboard app's credentials (secret encrypted, see settings.js).
-  guestLookup: String,
-  adminApi: { clientId: String, clientSecret: String },
   // Which parts use this store's own keys instead of Settings, and those keys
   // (secrets encrypted, see settings.js). Keys look like "sms:gupshup:userId".
   own: { sms: Boolean, mail: Boolean, social: Boolean },

@@ -234,3 +234,8 @@ html{scroll-behavior:smooth;scroll-padding-top:16px}
 .email-type .field-top{display:flex;justify-content:space-between;align-items:center}
 textarea.mono{font-family:var(--mono);font-size:12px}
 .starter-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 4px}
+label.check{flex-direction:row;align-items:flex-start;gap:10px;font-weight:400;font-size:13.5px;line-height:1.5}
+label.check input{margin-top:3px;flex:none;width:auto}
+label.check .muted{display:block;font-size:12.5px}
+ul.checks.small{font-size:13px;gap:6px}
+@media (max-width:700px){.stats{grid-template-columns:repeat(2,1fr)}}

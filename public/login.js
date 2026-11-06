@@ -99,8 +99,9 @@
     '</div>',
 
     '<form class="idp-view" data-view="reset" hidden novalidate>',
-    pw('password', 'new-password', 'New password (min 8, letters + numbers)'),
+    pw('password', 'new-password', 'New password'),
     pw('confirmPassword', 'new-password', 'Confirm new password'),
+    '<div class="idp-rules" data-rules hidden><p>Your password must contain:</p><ul></ul></div>',
     '<button class="idp-btn" type="submit">Save and login</button>',
     '</form>',
 
@@ -165,6 +166,7 @@
     q('[data-b="cc"]').textContent = '+' + (cfg.countryCode || '91');
     form('otp').code.maxLength = cfg.otpLength || 6;
     if (cfg.forgotMode === 'link') SUBS.forgot = FORGOT_LINK;
+    renderRules(cfg.passwordRules || []);
     renderSocial();
   }
 
@@ -243,6 +245,26 @@
     if (!document.hidden && state.resetCheck) state.resetCheck(); // back in this tab: check now
   });
 
+  // Password rules checklist (store setting), ticks while the customer types.
+  var RULES = [];
+  function renderRules(list) {
+    RULES = list.map(function (r) { return { label: r.label, re: new RegExp(r.pattern) }; });
+    var box = root.querySelector('[data-rules]');
+    var ul = box.querySelector('ul');
+    ul.textContent = '';
+    RULES.forEach(function (r) { var li = document.createElement('li'); li.textContent = r.label; ul.appendChild(li); });
+    box.hidden = !RULES.length;
+    tickRules('');
+  }
+  function rulesMet(pwValue) {
+    return RULES.every(function (r) { return r.re.test(pwValue); });
+  }
+  function tickRules(pwValue) {
+    var items = root.querySelectorAll('[data-rules] li');
+    RULES.forEach(function (r, i) { if (items[i]) items[i].classList.toggle('ok', r.re.test(pwValue)); });
+  }
+  form('reset').password.addEventListener('input', function (e) { tickRules(e.target.value); });
+
   function step(res) {
     if (res.flowId) state.flowId = res.flowId;
     if (res.step === 'otp') {
@@ -305,6 +327,7 @@
   });
   onSubmit('reset', function (f) {
     if (!f.password.value) throw new Error('Please enter a new password.');
+    if (!rulesMet(f.password.value)) throw new Error('Please choose a password that meets all the rules below.');
     if (f.password.value !== f.confirmPassword.value) throw new Error('The passwords don’t match. Please enter the same password twice.');
     return api('/api/login/reset', { flowId: state.flowId, password: f.password.value, confirmPassword: f.confirmPassword.value });
   });

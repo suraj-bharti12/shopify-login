@@ -207,6 +207,7 @@ function storeForm({ store, values, error, isNew, csrf }) {
     loginDomain: store.loginDomain || '',
     forgotMode: store.forgotMode,
     afterReset: store.afterReset,
+    passwordRule: store.passwordRule,
     codeSubject: store.emails?.codeSubject || '',
     codeHtml: store.emails?.codeHtml || '',
     resetSubject: store.emails?.resetSubject || '',
@@ -261,7 +262,13 @@ function storeForm({ store, values, error, isNew, csrf }) {
       </section>
 
       <section class="card" id="emails">
-        <h2>Password reset &amp; emails</h2>
+        <h2>Passwords &amp; emails</h2>
+        <label><span>Password rules</span>
+          <select name="passwordRule">
+            <option value="standard"${v.passwordRule !== 'strong' ? ' selected' : ''}>Standard: at least 8 characters with letters and numbers</option>
+            <option value="strong"${v.passwordRule === 'strong' ? ' selected' : ''}>Strong: at least 8 characters with uppercase, lowercase, number and special character</option>
+          </select>
+          <span class="help">Used when customers set a new password; the login window shows the rules as a checklist that ticks as they type. Existing passwords keep working.</span></label>
         <label><span>Forgot password</span>
           <select name="forgotMode">
             <option value="code"${v.forgotMode !== 'link' ? ' selected' : ''}>Code by email, new password in the login window</option>
@@ -441,6 +448,95 @@ export function storePage(ctx, { store, secret, values, error, customerCount }) 
 
 // ---------- customers ----------
 
+const importOptions = (values) => `
+      <label class="check"><input type="checkbox" name="emailsVerified" value="1"${values.emailsVerified === '1' ? ' checked' : ''}>
+        <span>The emails in this file are the customers' real emails (e.g. a Shopify customer export). <span class="muted">Customers then sign in with mobile OTP straight away. Untick to make them confirm their email with a code at first sign-in.</span></span></label>
+      <label class="check"><input type="checkbox" name="useAddressPhone" value="1"${values.useAddressPhone === '1' ? ' checked' : ''}>
+        <span>Use "Default Address Phone" when the "Phone" column is empty. <span class="muted">Careful: an address phone can belong to someone else (a gift or a family member), who could then sign in to this customer's account.</span></span></label>`;
+
+export function importPage(ctx, { groups, values, error }) {
+  return layout({
+    ...ctx,
+    title: 'Import customers',
+    active: 'customers',
+    actions: '<a class="btn" href="/admin/customers">Back to customers</a>',
+    body: `${error ? `<div class="flash flash-error">${esc(error)}</div>` : ''}
+    <div class="grid-2">
+    <form method="post" action="/admin/customers/import" class="card stack" data-import-form>
+      ${csrfInput(ctx.csrf)}
+      <h2>1. Choose the file</h2>
+      <label><span>Customer list</span>
+        <select name="group" required>
+          <option value="">Choose…</option>
+          ${groups.map((g) => `<option value="${esc(g.group)}"${values.group === g.group ? ' selected' : ''}>${esc(g.label)}</option>`).join('')}
+        </select>
+        <span class="help">Customers are added to this list, so they can sign in on these stores.</span></label>
+      <label><span>CSV file</span>
+        <input type="file" accept=".csv,text/csv" data-csv-file>
+        <span class="help" data-csv-info>${values.fileName ? `Selected: ${esc(values.fileName)}` : 'Up to 15 MB (about 100,000 customers).'}</span></label>
+      <textarea name="csv" hidden></textarea>
+      <input type="hidden" name="fileName" value="${esc(values.fileName || '')}">
+      ${importOptions(values)}
+      <button class="btn primary" type="submit" name="action" value="preview">Check file</button>
+      <p class="muted small">Nothing is saved yet: the next screen shows what will happen.</p>
+    </form>
+    <section class="card">
+      <h2>What the file can contain</h2>
+      <p class="muted">The first row must have column names. Recognised columns:</p>
+      <ul class="mono-list">
+        <li>first_name, last_name <span class="muted">(or name)</span></li>
+        <li>email</li>
+        <li>phone <span class="muted">(10-digit Indian numbers or +country code)</span></li>
+      </ul>
+      <p class="muted">A <b>Shopify customer export</b> (Shopify admin → Customers → Export) works as it is. Other columns are ignored.</p>
+      <p><a class="btn sm" href="/admin/customers/import-template.csv">Download template</a></p>
+      <h3>How existing customers are handled</h3>
+      <ul class="checks small">
+        <li>Same email or mobile already in the list: missing name, email or mobile is filled in; nothing is overwritten.</li>
+        <li>Email and mobile belonging to two different customers: the row is skipped and listed.</li>
+        <li>Passwords can't be imported (Shopify doesn't export them). Customers sign in with OTP, or set a password with “Forgot password”.</li>
+        <li>Rows without an email can sign in with mobile OTP, but are asked for an email the first time, because Shopify needs one.</li>
+      </ul>
+    </section>
+    </div>`,
+  });
+}
+
+export function importPreviewPage(ctx, { plan, values, csv, label }) {
+  const n = (x) => Number(x).toLocaleString('en-IN');
+  const NAMES = {
+    firstName: 'first name', lastName: 'last name', fullName: 'name', email: 'email', phone: 'phone', addressPhone: 'address phone',
+  };
+  const cols = Object.keys(plan.columns).map((k) => NAMES[k] || k).join(', ');
+  return layout({
+    ...ctx,
+    title: 'Check the import',
+    active: 'customers',
+    actions: '<a class="btn" href="/admin/customers/import">Choose another file</a>',
+    body: `<p class="lead">${esc(values.fileName || 'Your file')}: ${n(plan.total)} rows, into <b>${esc(label)}</b>. Columns found: ${esc(cols)}.</p>
+    <div class="stats">
+      <div class="stat"><span>New customers</span><strong>${n(plan.create.length)}</strong></div>
+      <div class="stat"><span>Existing, filled in</span><strong>${n(plan.update.length)}</strong></div>
+      <div class="stat"><span>Already up to date</span><strong>${n(plan.unchanged)}</strong></div>
+      <div class="stat"><span>Skipped</span><strong>${n(plan.skipped.length)}</strong></div>
+    </div>
+    ${plan.noEmail ? `<p class="note">${n(plan.noEmail)} new customer${plan.noEmail === 1 ? ' has' : 's have'} no email. They can sign in with mobile OTP but are asked for an email the first time.</p>` : ''}
+    ${plan.skipped.length ? `<section class="card"><h2>Skipped rows</h2><div class="scroll"><table class="table">
+      <thead><tr><th>Line</th><th>Reason</th></tr></thead><tbody>
+      ${plan.skipped.slice(0, 200).map((s) => `<tr><td>${s.line}</td><td>${esc(s.reason)}</td></tr>`).join('')}
+      </tbody></table></div>${plan.skipped.length > 200 ? `<p class="muted small">…and ${n(plan.skipped.length - 200)} more.</p>` : ''}</section>` : ''}
+    <form method="post" action="/admin/customers/import" class="card stack">
+      ${csrfInput(ctx.csrf)}
+      <input type="hidden" name="group" value="${esc(values.group)}">
+      <input type="hidden" name="fileName" value="${esc(values.fileName || '')}">
+      ${values.emailsVerified === '1' ? '<input type="hidden" name="emailsVerified" value="1">' : ''}
+      ${values.useAddressPhone === '1' ? '<input type="hidden" name="useAddressPhone" value="1">' : ''}
+      <textarea name="csv" hidden>${esc(csv)}</textarea>
+      <button class="btn primary" type="submit" name="action" value="import"${plan.create.length + plan.update.length ? '' : ' disabled'}>Import ${n(plan.create.length + plan.update.length)} customers</button>
+    </form>`,
+  });
+}
+
 export function customersPage(ctx, { list, q, group, page, pages, total, groups }) {
   const groupName = (g) => {
     const names = (groups[g] || []).map((s) => s.name);
@@ -460,6 +556,8 @@ export function customersPage(ctx, { list, q, group, page, pages, total, groups 
     ...ctx,
     title: 'Customers',
     active: 'customers',
+    actions: `<a class="btn" href="/admin/customers/export.csv${group ? `?group=${encodeURIComponent(group)}` : ''}">Export CSV</a>
+      <a class="btn primary" href="/admin/customers/import${group ? `?group=${encodeURIComponent(group)}` : ''}">Import customers</a>`,
     body: `<form class="search" method="get" action="/admin/customers">
       <input name="q" value="${esc(q || '')}" placeholder="Search by email, mobile number or name" aria-label="Search">
       ${groupKeys.length > 1 ? `<select name="group" aria-label="Customer list"><option value="">All stores</option>${groupKeys.map((g) => `<option value="${esc(g)}"${g === group ? ' selected' : ''}>${esc(groupName(g))}</option>`).join('')}</select>` : ''}

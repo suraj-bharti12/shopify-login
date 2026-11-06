@@ -58,6 +58,14 @@ Store page → **SMS, email & social login**. For each part choose:
 
 The store page has **Test this store's SMS** and **Test this store's email** buttons. Passwords and keys are stored encrypted. OTP rules and the default country code come from Settings for all stores.
 
+### Password rules
+Store page → **Passwords & emails → Password rules**: **Standard** (at least 8 characters with letters and numbers) or **Strong** (at least 8 characters with uppercase, lowercase, number and special character). The rules show as a checklist that ticks while the customer types a new password. Existing passwords keep working.
+
+### Importing and exporting customers
+Customers → **Import customers**: choose the customer list and a CSV file, check the preview, then import. A Shopify customer export (Shopify admin → Customers → Export) works as it is; other files need `email` and/or `phone` columns (template on the page). Imported customers sign in with mobile OTP straight away and Shopify opens their existing account and orders. Existing customers are only filled in, never overwritten; conflicts and invalid rows are listed and skipped. Passwords can't be imported, so customers use OTP or "Forgot password".
+
+Customers → **Export CSV** downloads the customers of the selected list (or all). The file can be imported again elsewhere.
+
 ### Customer lists
 Each store either keeps a **separate** customer list (the default for new stores) or **shares** one with other stores. With separate lists the same email or mobile number can exist once per store, and signing in on one store does not sign the customer in on another. If a store's list is changed after customers have signed in and Shopify shows "The sign-in method you used doesn't match this account", unlink the customer in Shopify admin → Customers.
 

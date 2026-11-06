@@ -63,6 +63,30 @@
     });
   }
 
+  // Customer import: read the chosen CSV file into the form
+  var csvFile = document.querySelector('[data-csv-file]');
+  if (csvFile) {
+    var importForm = csvFile.form;
+    var info = importForm.querySelector('[data-csv-info]');
+    csvFile.addEventListener('change', function () {
+      var f = csvFile.files[0];
+      if (!f) return;
+      if (f.size > 15 * 1024 * 1024) { info.textContent = 'This file is larger than 15 MB. Split it into smaller files.'; csvFile.value = ''; return; }
+      var reader = new FileReader();
+      reader.onload = function () {
+        importForm.csv.value = reader.result;
+        importForm.fileName.value = f.name;
+        var lines = String(reader.result).split(/\r?\n/).filter(function (l) { return l.trim(); }).length;
+        info.textContent = f.name + ': about ' + Math.max(0, lines - 1).toLocaleString('en-IN') + ' rows.';
+      };
+      reader.onerror = function () { info.textContent = 'Could not read this file.'; };
+      reader.readAsText(f);
+    });
+    importForm.addEventListener('submit', function (e) {
+      if (!importForm.csv.value) { e.preventDefault(); info.textContent = 'Choose a CSV file first.'; }
+    });
+  }
+
   // Store form: fill an email HTML box with the starter template
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-starter]');

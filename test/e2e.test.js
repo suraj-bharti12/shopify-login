@@ -1135,3 +1135,129 @@ test('forgot password by link: the window that asked for the link learns when th
   const ok = await api('/api/login/password', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email, password: 'waiter1234' });
   assert.equal(ok.json.step, 'done');
 });
+
+// ---------- password rules, customer import / export ----------
+
+async function saveStoreForm(b, extra) {
+  const page = await b.req('/admin/stores/test-store');
+  return b.req('/admin/stores/test-store', {
+    method: 'POST',
+    form: {
+      _csrf: csrfOf(page.text), name: 'Test Store', shopDomain: 'test-store.myshopify.com', shopId: '111', domains: 'store.example',
+      brandName: 'Test Brand', color: '#123456', smsTemplate: 'TEST {otp} CODE', ...extra,
+    },
+  });
+}
+
+test('password rules: a store can require strong passwords; the rules reach the login window and the reset page', async () => {
+  const b = await adminBrowser();
+  const saved = await saveStoreForm(b, { passwordRule: 'strong', forgotMode: 'code' });
+  assert.equal(saved.status, 303, saved.text.slice(0, 300));
+  const cfg = await (await fetch(`${ISSUER}/api/login/config?store=test-store`)).json();
+  assert.deepEqual(cfg.passwordRules.map((r) => r.label), [
+    'At least 8 characters', '1 uppercase letter (A-Z)', '1 lowercase letter (a-z)', '1 number (0-9)', '1 special character (!@#$...)',
+  ]);
+  const other = await (await fetch(`${ISSUER}/api/login/config?store=other-store`)).json();
+  assert.equal(other.passwordRules.length, 2);
+
+  const email = 'rules@example.com';
+  const f = await api('/api/login/forgot', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email });
+  const v = await api('/api/login/otp/verify', { flowId: f.json.flowId, code: lastCode(email) });
+  assert.equal(v.json.step, 'reset');
+  const weak = await api('/api/login/reset', { flowId: f.json.flowId, password: 'abc12345', confirmPassword: 'abc12345' });
+  assert.equal(weak.status, 400);
+  assert.match(weak.json.error, /1 uppercase letter \(A-Z\), 1 special character/);
+  const strong = await api('/api/login/reset', { flowId: f.json.flowId, password: 'Abc12345!', confirmPassword: 'Abc12345!' });
+  assert.equal(strong.json.step, 'done', JSON.stringify(strong.json));
+
+  // reset page (link mode) lists the same rules
+  await saveStoreForm(b, { passwordRule: 'strong', forgotMode: 'link' });
+  await api('/api/login/forgot', { store: 'test-store', returnTo: SHOPIFY_LOGIN, email });
+  const pageRes = await browser().req(lastLink(email));
+  assert.match(pageRes.text, /Your password must contain:/);
+  assert.match(pageRes.text, /data-pattern="\[A-Z\]">1 uppercase letter/);
+  const tokenValue = new URL(lastLink(email)).searchParams.get('token');
+  const weak2 = await browser().req('/reset-password', { method: 'POST', form: { token: tokenValue, password: 'abcdefg1', confirmPassword: 'abcdefg1' } });
+  assert.match(weak2.text, /must contain: 1 uppercase letter/);
+  await saveStoreForm(b, { passwordRule: 'standard', forgotMode: 'code' });
+});
+
+test('customer CSV: parser handles quotes, commas and line breaks', async () => {
+  const { parseCsv, csvLine } = await import('../src/customerData.js');
+  assert.deepEqual(parseCsv('﻿a,b\r\n"x, y","say ""hi""\nthere"\n\n'), [['a', 'b'], ['x, y', 'say "hi"\nthere']]);
+  assert.equal(csvLine(['=SUM(A1)', '+919876543210', 'a,b']), "'=SUM(A1),+919876543210,\"a,b\"\r\n");
+});
+
+test('customer import: Shopify export -> preview -> import; imported customers sign in with mobile OTP straight away', async () => {
+  const b = await adminBrowser();
+  const page = await b.req('/admin/customers/import');
+  assert.match(page.text, /Import customers/);
+  const csv = [
+    'First Name,Last Name,Email,Accepts Email Marketing,Default Address Phone,Phone,Tags',
+    'Imran,Khan,imran@example.com,yes,,98111 11111,vip',
+    'New,Person,new2@example.com,no,,9000000001,',
+    'Bad,Phone,badphone@example.com,no,,12,',
+    'Imran,Again,IMRAN@example.com,no,,,',
+    'Phone,Only,,no,,9822222222,',
+    'Addr,Phone,addr@example.com,no,9833333333,,',
+    ',,,,,,',
+  ].join('\n');
+  const form = { _csrf: csrfOf(page.text), group: 'default', emailsVerified: '1', csv, fileName: 'customers_export.csv' };
+  const preview = await b.req('/admin/customers/import', { method: 'POST', form: { ...form, action: 'preview' } });
+  assert.equal(preview.status, 200, preview.text.slice(0, 300));
+  assert.match(preview.text, /New customers<\/span><strong>3</);
+  assert.match(preview.text, /Skipped<\/span><strong>3</);
+  assert.match(preview.text, /mobile number already belongs to as\*\*\*@example\.com/);
+  assert.match(preview.text, /Invalid mobile number &quot;12&quot;/);
+  assert.match(preview.text, /Same email as line 2/);
+  assert.match(preview.text, /Line<\/th>/);
+  assert.equal(await mongoose.connection.db.collection('users').countDocuments({ email: 'imran@example.com' }), 0); // nothing saved yet
+
+  const done = await b.req('/admin/customers/import', { method: 'POST', form: { ...form, action: 'import' } });
+  assert.equal(done.status, 303);
+  const users = mongoose.connection.db.collection('users');
+  const imran = await users.findOne({ group: 'default', email: 'imran@example.com' });
+  assert.equal(imran.phone, '+919811111111');
+  assert.equal(imran.emailVerified, true);
+  assert.equal(imran.firstName, 'Imran');
+  assert.deepEqual(imran.tags, []); // Shopify tags are not copied back
+  assert.equal((await users.findOne({ group: 'default', email: 'addr@example.com' })).phone, undefined); // address phone not used
+  assert.ok(await users.findOne({ group: 'default', phone: '+919822222222' }));
+  assert.equal(await users.countDocuments({ email: 'new2@example.com' }), 0);
+
+  // mobile OTP -> signed in to the imported customer, no name/email asked
+  const s = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, mobile: '9811111111' });
+  const v = await api('/api/login/otp/verify', { flowId: s.json.flowId, code: lastCode('+919811111111') });
+  assert.equal(v.json.step, 'done', JSON.stringify(v.json));
+  const br = browser();
+  await br.req(v.json.redirect);
+  const auth = await br.go(authorizeUrl());
+  const { claims } = await exchange(auth.final);
+  assert.equal(claims.email, 'imran@example.com');
+  assert.equal(claims.given_name, 'Imran');
+  // a customer imported without an email is asked for one
+  const s2 = await api('/api/login/otp/send', { store: 'test-store', returnTo: SHOPIFY_LOGIN, mobile: '9822222222' });
+  const v2 = await api('/api/login/otp/verify', { flowId: s2.json.flowId, code: lastCode('+919822222222') });
+  assert.equal(v2.json.step, 'profile');
+  assert.equal(v2.json.needEmail, true);
+
+  // importing the same file again changes nothing
+  const again = await b.req('/admin/customers/import', { method: 'POST', form: { ...form, action: 'preview' } });
+  assert.match(again.text, /New customers<\/span><strong>0</);
+});
+
+test('customer export: CSV per customer list, ready to import elsewhere', async () => {
+  const b = await adminBrowser();
+  const res = await b.req('/admin/customers/export.csv?group=default');
+  assert.equal(res.status, 200);
+  const lines = res.text.replace(/^﻿/, '').split('\r\n');
+  assert.equal(lines[0], 'first_name,last_name,email,phone,email_verified,phone_verified,status,customer_list,stores,sign_in_methods,last_login_at,created_at');
+  assert.ok(lines.some((l) => l.startsWith('Imran,Khan,imran@example.com,+919811111111,yes,yes,active,default')), lines.slice(0, 5).join('\n'));
+  assert.ok(!res.text.includes('sep-store,')); // only this customer list
+  const { planImport } = await import('../src/customerData.js');
+  const plan = await planImport(res.text, { group: 'default' });
+  assert.equal(plan.create.length, 0); // round trip: everyone already there
+  const tpl = await b.req('/admin/customers/import-template.csv');
+  assert.match(tpl.text, /^first_name,last_name,email,phone/);
+  assert.match((await b.req('/admin/customers')).text, /Export CSV/);
+});

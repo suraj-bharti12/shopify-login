@@ -9,6 +9,7 @@ import { config } from './config.js';
 import { db, Store, Setting } from './db.js';
 import { forStore, toDb, fromDb } from './settings.js';
 import { EMAIL_TYPES } from './emails.js';
+import { passwordRules } from './users.js';
 
 const DIR = config.storesDir
   ? path.resolve(config.storesDir)
@@ -99,12 +100,8 @@ export function normalize(raw) {
     loginDomain,
     forgotMode: raw.forgotMode === 'link' ? 'link' : 'code',
     afterReset: raw.afterReset === 'page' ? 'page' : 'signin',
+    passwordRule: raw.passwordRule === 'strong' ? 'strong' : 'standard',
     emails,
-    guestLookup: ['confirm', 'direct'].includes(raw.guestLookup) ? raw.guestLookup : 'off',
-    adminApi: {
-      clientId: String(raw.adminApi?.clientId || '').trim(),
-      clientSecret: String(raw.adminApi?.clientId || '').trim() ? String(raw.adminApi?.clientSecret || '') : '',
-    },
     // Own SMS / email / social keys instead of the Settings ones (settings.forStore)
     own: { sms: Boolean(raw.own?.sms), mail: Boolean(raw.own?.mail), social: Boolean(raw.own?.social) },
     creds: fromDb(raw.creds),
@@ -142,9 +139,8 @@ function toDoc(s) {
     loginDomain: s.loginDomain || '',
     forgotMode: s.forgotMode,
     afterReset: s.afterReset,
+    passwordRule: s.passwordRule,
     emails: s.emails,
-    guestLookup: s.guestLookup,
-    adminApi: s.adminApi,
     own: s.own,
     creds: toDb(s.creds),
   };
@@ -194,6 +190,7 @@ export function publicConfig(store) {
     resendSeconds: config.otp.resendCooldownSeconds,
     afterLogin: store.afterLogin,
     forgotMode: store.forgotMode,
+    passwordRules: passwordRules(store.passwordRule),
   };
 }
 

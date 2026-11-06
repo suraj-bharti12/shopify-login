@@ -2,6 +2,7 @@
 // public/login.js + public/login.css (same code as the store drawer).
 import { config } from './config.js';
 import { stores, publicConfig } from './stores.js';
+import { passwordRules } from './users.js';
 
 export const ASSET_VERSION = '16';
 const FONTS = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600&family=Inter:wght@400;500;600&display=swap';
@@ -96,8 +97,10 @@ export function resetPasswordPage({ store, token, email, error }) {
   <form class="idp-view" method="post" action="/reset-password">
     <input type="hidden" name="token" value="${esc(token)}">
     <input type="email" name="username" value="${esc(email)}" autocomplete="username" hidden>
-    ${pwInput('password', 'New password (min 8, letters + numbers)')}
+    ${pwInput('password', 'New password')}
     ${pwInput('confirmPassword', 'Confirm new password')}
+    <div class="idp-rules" data-rules><p>Your password must contain:</p><ul>${passwordRules(store.passwordRule)
+    .map((r) => `<li data-pattern="${esc(r.pattern)}">${esc(r.label)}</li>`).join('')}</ul></div>
     <button class="idp-btn" type="submit">Save password</button>
   </form>
 </div></div></div>

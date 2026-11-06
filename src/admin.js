@@ -14,6 +14,9 @@ import { sendSms, sendTestEmail, smsText } from './otp.js';
 import { normalizeEmail, normalizePhone, passwordProblem } from './users.js';
 import * as view from './adminViews.js';
 import { guidePage } from './adminGuide.js';
+import {
+  planImport, applyImport, writeExport, IMPORT_TEMPLATE, MAX_IMPORT_BYTES,
+} from './customerData.js';
 import { issuerFor } from './issuers.js';
 import { renderEmail, RESET_LINK_MINUTES } from './emails.js';
 
@@ -208,6 +211,7 @@ export function adminRouter() {
     loginDomain: b.loginDomain,
     forgotMode: b.forgotMode,
     afterReset: b.afterReset,
+    passwordRule: b.passwordRule,
     emails: {
       codeSubject: b.codeSubject, codeHtml: b.codeHtml, resetSubject: b.resetSubject, resetHtml: b.resetHtml,
     },
@@ -389,6 +393,60 @@ export function adminRouter() {
     html(res, view.customersPage(ctx(req, res), {
       list, q, group, page, pages, total, groups: customerGroups(),
     }));
+  });
+
+  // ---------- customer import / export ----------
+
+  const importForm = express.urlencoded({ extended: false, limit: MAX_IMPORT_BYTES + 100_000, parameterLimit: 20 });
+  const groupChoices = () => Object.entries(customerGroups()).map(([g, list]) => ({ group: g, label: list.map((s) => s.name).join(' + ') }));
+
+  r.get('/admin/customers/export.csv', async (req, res) => {
+    const group = String(req.query.group || '').trim().toLowerCase().slice(0, 40);
+    const day = new Date().toISOString().slice(0, 10);
+    res.set({
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': `attachment; filename="customers-${group || 'all'}-${day}.csv"`,
+      'cache-control': 'no-store',
+    });
+    console.log(`[admin] ${req.admin.email} exported customers (${group || 'all lists'})`);
+    res.write('\uFEFF'); // so Excel reads names in any language correctly
+    await writeExport(res, group);
+  });
+
+  r.get('/admin/customers/import-template.csv', (req, res) => {
+    res.set({ 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="customers-import-template.csv"' });
+    res.send(IMPORT_TEMPLATE);
+  });
+
+  r.get('/admin/customers/import', (req, res) => {
+    html(res, view.importPage(ctx(req, res), { groups: groupChoices(), values: { group: String(req.query.group || ''), emailsVerified: '1' } }));
+  });
+
+  r.post('/admin/customers/import', importForm, checkPost, async (req, res) => {
+    const b = req.body;
+    const groups = groupChoices();
+    const values = {
+      group: String(b.group || ''), emailsVerified: b.emailsVerified === '1' ? '1' : '', useAddressPhone: b.useAddressPhone === '1' ? '1' : '',
+      fileName: String(b.fileName || '').slice(0, 200),
+    };
+    const again = (error) => html(res.status(400), view.importPage(ctx(req, res), { groups, values, error }));
+    if (!groups.some((g) => g.group === values.group)) return again('Choose the customer list to import into.');
+    const csv = String(b.csv || '');
+    if (!csv.trim()) return again('Choose a CSV file first.');
+    let plan;
+    try {
+      plan = await planImport(csv, { group: values.group, emailsVerified: values.emailsVerified === '1', useAddressPhone: values.useAddressPhone === '1' });
+    } catch (e) {
+      return again(e.message);
+    }
+    const label = groups.find((g) => g.group === values.group).label;
+    if (b.action !== 'import') {
+      return html(res, view.importPreviewPage(ctx(req, res), { plan, values, csv, label }));
+    }
+    const result = await applyImport(plan);
+    console.log(`[admin] ${req.admin.email} imported customers into "${values.group}": ${result.created} new, ${result.updated} updated, ${plan.skipped.length} skipped, ${result.failed} failed`);
+    flash(res, result.failed ? 'error' : 'ok', `Import finished for ${label}: ${result.created} new customers, ${result.updated} updated, ${plan.unchanged} already up to date, ${plan.skipped.length} skipped${result.failed ? `, ${result.failed} could not be saved (they signed up meanwhile)` : ''}.`);
+    return res.redirect(303, `/admin/customers?group=${encodeURIComponent(values.group)}`);
   });
 
   async function findCustomer(req, res) {
